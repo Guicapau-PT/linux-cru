@@ -90,23 +90,54 @@ def systemd_unit_text():
 
 
 def systemd_helper_text():
-    """The helper the boot service runs: writes edid_firmware, reprobes."""
-    return (f"#!/bin/bash\n"
-            f"# Applies the installed EDID overrides, then re-probes the\n"
-            f"# connectors so the new mode lists are in place before the\n"
-            f"# desktop starts.\n"
-            f"# point the kernel firmware loader at our writable dir\n"
-            f"printf '%s' '{FIRMWARE_SEARCH_PATH}' "
-            f"> /sys/module/firmware_class/parameters/path\n"
-            f"value=\"\"\n"
-            f"for f in {FIRMWARE_DIR}/{FILE_PREFIX}*.bin; do\n"
-            f"    [ -e \"$f\" ] || continue\n"
-            f"    conn=$(basename \"$f\"); conn=${{conn#{FILE_PREFIX}}}; conn=${{conn%.bin}}\n"
-            f"    [ -n \"$value\" ] && value=\"$value,\"\n"
-            f"    value=\"$value$conn:edid/$(basename \"$f\")\"\n"
-            f"done\n"
-            f"echo \"$value\" > /sys/module/drm/parameters/edid_firmware\n"
-            f"# ...then trigger_hotplug / status=detect on each connector\n")
+    """The helper the boot service runs: writes edid_firmware, reprobes.
+
+    This is the exact text that gets installed, so the preview in the
+    interface shows what will really run.
+    """
+    return f"""#!/bin/bash
+# Managed by Linux CRU. Applies the EDID overrides for the installed
+# displays, then re-probes them so the new mode lists are in place
+# before the desktop starts.
+set -u
+FWDIR='{FIRMWARE_DIR}'
+PREFIX='{FILE_PREFIX}'
+
+value=""
+for f in "$FWDIR/$PREFIX"*.bin; do
+    [ -e "$f" ] || continue
+    base=$(basename "$f")
+    conn=${{base#$PREFIX}}
+    conn=${{conn%.bin}}
+    [ -n "$value" ] && value="$value,"
+    value="$value$conn:edid/$base"
+done
+[ -n "$value" ] || exit 0
+
+# point the firmware loader at our writable dir (works where /usr is
+# read-only), then apply the overrides
+printf '%s' '{FIRMWARE_SEARCH_PATH}' > /sys/module/firmware_class/parameters/path
+echo "$value" > /sys/module/drm/parameters/edid_firmware
+
+# Re-probe: the driver already detected these connectors (with the
+# original EDID) before the root filesystem was mounted.
+for f in "$FWDIR/$PREFIX"*.bin; do
+    [ -e "$f" ] || continue
+    base=$(basename "$f")
+    conn=${{base#$PREFIX}}
+    conn=${{conn%.bin}}
+    for path in /sys/class/drm/card*-"$conn"; do
+        [ -e "$path/status" ] || continue
+        card=$(basename "$path"); card=${{card%%-*}}
+        minor=$(cut -d: -f2 "/sys/class/drm/$card/dev" 2>/dev/null)
+        if [ -n "$minor" ] && [ -e "/sys/kernel/debug/dri/$minor/$conn/trigger_hotplug" ]; then
+            echo 1 > "/sys/kernel/debug/dri/$minor/$conn/trigger_hotplug" || true
+        else
+            echo detect > "$path/status" || true
+        fi
+    done
+done
+"""
 
 
 def firmware_rel(connector):
@@ -259,51 +290,7 @@ HELPER='{SYSTEMD_HELPER}'
 write_helper() {{
     mkdir -p "$(dirname "$HELPER")"
     cat > "$HELPER" <<'HELPEREOF'
-#!/bin/bash
-# Managed by Linux CRU. Applies the EDID overrides for the installed
-# displays, then re-probes them so the new mode lists are in place
-# before the desktop starts.
-set -u
-FWDIR='@FWDIR@'
-PREFIX='@PREFIX@'
-SEARCHPATH='@SEARCHPATH@'
-
-value=""
-for f in "$FWDIR/$PREFIX"*.bin; do
-    [ -e "$f" ] || continue
-    base=$(basename "$f")
-    conn=${{base#$PREFIX}}
-    conn=${{conn%.bin}}
-    [ -n "$value" ] && value="$value,"
-    value="$value$conn:edid/$base"
-done
-[ -n "$value" ] || exit 0
-
-# point the firmware loader at our writable dir (works where /usr is
-# read-only), then apply the overrides
-printf '%s' "$SEARCHPATH" > /sys/module/firmware_class/parameters/path
-echo "$value" > /sys/module/drm/parameters/edid_firmware
-
-# Re-probe: the driver already detected these connectors (with the
-# original EDID) before the root filesystem was mounted.
-for f in "$FWDIR/$PREFIX"*.bin; do
-    [ -e "$f" ] || continue
-    base=$(basename "$f")
-    conn=${{base#$PREFIX}}
-    conn=${{conn%.bin}}
-    for path in /sys/class/drm/card*-"$conn"; do
-        [ -e "$path/status" ] || continue
-        card=$(basename "$path"); card=${{card%%-*}}
-        minor=$(cut -d: -f2 "/sys/class/drm/$card/dev" 2>/dev/null)
-        if [ -n "$minor" ] && [ -e "/sys/kernel/debug/dri/$minor/$conn/trigger_hotplug" ]; then
-            echo 1 > "/sys/kernel/debug/dri/$minor/$conn/trigger_hotplug" || true
-        else
-            echo detect > "$path/status" || true
-        fi
-    done
-done
-HELPEREOF
-    sed -i "s|@FWDIR@|$FWDIR|g; s|@PREFIX@|$PREFIX|g; s|@SEARCHPATH@|{FIRMWARE_SEARCH_PATH}|g" "$HELPER"
+{systemd_helper_text()}HELPEREOF
     chmod 755 "$HELPER"
 }}
 

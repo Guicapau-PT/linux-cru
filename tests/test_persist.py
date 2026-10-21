@@ -209,6 +209,9 @@ def test_systemd_helper_handles_two_displays():
             assert res.returncode == 0, res.stderr
 
         helper = open(persist.SYSTEMD_HELPER).read()
+        # What the interface shows before anything runs is what runs.
+        assert helper == persist.systemd_helper_text(), \
+            "the previewed helper and the installed one differ"
         probe = f"{root}/probe.sh"
         with open(probe, "w") as f:
             f.write(helper.replace("> /sys/module/drm/parameters/edid_firmware",

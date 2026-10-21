@@ -234,7 +234,8 @@ env -i \
 import sys
 import tkinter, _tkinter                     # the hard one: pulls in libtk/libtcl
 import linux_cru
-from linux_cru import detect, edid, override, persist, privileged, timings, wayland
+from linux_cru import (app, cosmic, detect, edid, override, persist,
+                       privileged, settings, theme, timings, wayland, xorg)
 print(f"    bundled python {sys.version.split()[0]}, "
       f"tk {_tkinter.TK_VERSION}, linux_cru {linux_cru.__version__}: ok")
 PY
