@@ -4,7 +4,6 @@ Loads the real GUI (needs a display; CI runs it under Xvfb) with a
 faked NVIDIA X11 environment and checks the generated xorg.conf.
 """
 
-import importlib.util
 import os
 import sys
 
@@ -13,18 +12,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import tkinter as tk
 
 from linux_cru.detect import Environment, GPU, Connector
+from linux_cru import app
 from linux_cru import detect as dm
 
 
-def _app():
-    path = os.path.join(os.path.dirname(__file__), "..", "linux-cru.py")
-    spec = importlib.util.spec_from_file_location("app", path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def _gui(app, env):
+def _gui(env):
     real = dm.detect
     dm.detect = lambda: env
     try:
@@ -43,8 +35,7 @@ def _nvidia_env():
 
 
 def test_nvidia_defaults_and_customedid():
-    app = _app()
-    root, g = _gui(app, _nvidia_env())
+    root, g = _gui(_nvidia_env())
     try:
         g.display_var.set("DP-0")      # X name, different from DRM DP-1
         assert g.relax_validation.get(), "bypass flags should default ON"
@@ -74,10 +65,9 @@ def test_nvidia_defaults_and_customedid():
 
 
 def test_non_nvidia_has_no_bypass_or_customedid():
-    app = _app()
     env = Environment(session_type="x11", compositor="x11",
                       gpus=[GPU("card0", "amdgpu")])
-    root, g = _gui(app, env)
+    root, g = _gui(env)
     try:
         assert g.relax_validation.get() is False
         assert g.nvidia_customedid.get() is False
