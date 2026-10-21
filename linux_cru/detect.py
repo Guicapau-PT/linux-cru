@@ -740,6 +740,14 @@ def describe_paths(env: Environment) -> str:
                 "Apply Configuration saves it to /etc/X11/xorg.conf.d.")
 
     if env.session_type == "wayland":
+        if env.compositor == "kwin" and env.kde_kscreenctl_available:
+            # Plasma 6.8 hands the timings to KWin as they are, and the
+            # driver takes them -- the NVIDIA driver included.
+            return ("KDE Plasma takes the timings as they are, through "
+                    "kscreenctl, so every timing standard can be used exactly. "
+                    "Nothing is written to the system, and adaptive sync "
+                    "keeps working. See the commands in the preview.")
+
         compositor_note = ""
         if env.compositor == "cosmic":
             compositor_note = (" COSMIC cannot create a mode the display does "
