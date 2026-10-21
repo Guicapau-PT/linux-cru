@@ -960,6 +960,7 @@ class LinuxCRU:
         short = self.strip_card(conn)
         fw = persist.firmware_path(short)
         minor = self.drm_minor(conn)
+        env = self.env
 
         try:
             e = edid.Edid.from_connector(conn)
@@ -978,10 +979,20 @@ class LinuxCRU:
             f"# as a {placement}, installed at {fw}.",
             "",
             "# --- Test Mode runs, as root (no reboot, auto-reverts) ---",
-            f"cat {os.path.basename(fw)} > /sys/kernel/debug/dri/{minor}/{short}/edid_override",
+            "# The patched EDID is written to a temporary file first, and",
+            "# that copy is what goes over the connector:",
+            f"cat {os.path.join('/tmp/linux-cru-XXXXXX', short + '.bin')} "
+            f"> /sys/kernel/debug/dri/{minor}/{short}/edid_override",
             f"echo 1 > /sys/kernel/debug/dri/{minor}/{short}/trigger_hotplug",
             "",
         ]
+
+        if env.has_nvidia_proprietary:
+            parts += [
+                "# Note: while an EDID override is in place on the NVIDIA",
+                "# driver, adaptive sync (VRR) does not work.",
+                "",
+            ]
 
         if method == persist.METHOD_SYSTEMD:
             parts += [
