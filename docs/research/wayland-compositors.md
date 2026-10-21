@@ -121,6 +121,17 @@ kscreenctl <output> set-hdr | set-wcg | set-maxbpc | set-rgb-range | set-oversca
 
 **What this changes for a CRU tool:** on Plasma 6.6 and 6.7 the compositor can only produce the timings it computes itself (CVT or CVT-RB), so anything else — CVT-RBv2, GTF, or a modeline pasted from Windows CRU — has to go in through an EDID override. From Plasma 6.8 on, the exact timings go to KWin directly, and every timing standard works.
 
+#### What kscreenctl does on the wire (verified 2026-10-22 on Plasma 6.8.0)
+
+Four things about the tool that are not in the help text and that a caller has to know:
+
+1. **`add-custom-mode` does not switch to the mode.** It adds it to the output's custom modes and applies the *configuration* — the mode that is on the display does not change. Switching is a second command (`set-mode`).
+2. **The mode ids are renumbered every time the configuration is applied.** A mode that was id 5 before an apply can be id 6 after it, and a mode that was added last can come back as id 1. An id is therefore only good for the moment it was read — anything that has to survive an apply has to address the mode by what it is (`WxH@RR`) instead.
+3. **A custom mode that is in use cannot be taken away.** `remove-custom-mode` on the mode the display is running exits 0 and does nothing; the mode disappears when the display leaves it. The order has to be: switch away, *then* remove.
+4. **`remove-custom-mode` takes the index from `list-custom-modes`**, not a mode id, and the indices shift as soon as the configuration is applied.
+
+Matching a mode by refresh rate has a tolerance of 0.01 Hz in KDE's own `modeByQuery`. That matters: a display that advertises 2560x1440 at 99.98 Hz and a tool that asks for 100.00 Hz are 0.02 Hz apart, and a looser comparison picks the wrong one.
+
 **Exact syntax (verified in libkscreen `src/doctor/doctor.cpp` on master):**
 ```bash
 # list outputs, modes, VRR capability
@@ -314,5 +325,6 @@ Because compositor mode lists come from KMS, injecting modes **below** the compo
 2. **Custom-mode writers**: reuse the modeline generator for Sway (`output modeline`), Hyprland (`modeline` in conf — mind the hyprlang→Lua transition at 0.55), Weston (`weston.ini`), and kernel EDID/`video=` fallback. For KWin 6.6 and wlroots `set_custom_mode`, emit `W/H/refresh(+blanking flag)` instead — the compositor computes CVT.
 3. **Hard walls to surface in the UI**: GNOME = no compositor-level custom modes, period (offer the EDID-override flow); COSMIC = custom modes currently rejected (open bug); KDE < 6.6 = same, suggest upgrade or EDID override; KWin 6.6 add-then-apply must be two steps — **from 6.8 on, kscreenctl takes the modeline and does both at once**.
 4. **Waiting for the mode is two different waits.** After an EDID override the kernel's connector mode list has the new mode immediately, but the compositor keeps its own copy of the mode list and may not read it again while it runs (confirmed on COSMIC, §3.4). A tool has to wait for the *compositor's* list before it asks the compositor to select the mode, and to say "the desktop has not read the display yet" when it does not turn up — otherwise the failure looks like "the driver refused the mode", which is a different problem with a different fix.
+5. **The NVIDIA rule has an exception.** For years the answer for the NVIDIA driver on Wayland was "custom modes from a compositor are rejected, use an EDID override". With Plasma 6.8's modeline support that is no longer true on that desktop: the exact timings go to KWin and the driver accepts the mode (verified on NVIDIA 615.78.08 with a 2560x1440@100 CVT-RBv2 timing at 398.640 MHz). The exception is worth knowing, because the EDID override it replaces breaks VRR — with the mode applied through KWin, adaptive sync keeps working.
 
 Sources not linked inline above: [sway releases](https://github.com/swaywm/sway/releases), [Plasma 6.6 display improvements](https://linuxiac.com/kde-plasma-6-6-will-enhance-display-handling-and-scaling-on-wayland/), [kscreen-doctor overview](https://linuxcommandlibrary.com/man/kscreen-doctor), [Manjaro forum: custom VGA resolution on Wayland](https://forum.manjaro.org/t/how-can-i-make-a-custom-resolution-for-vga-monitor-in-wayland/174597), [Hyprland mode-not-listed discussion](https://github.com/hyprwm/Hyprland/discussions/12064), [mutter VRR MR !1154](https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/1154).

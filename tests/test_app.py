@@ -7,10 +7,12 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.dirname(__file__))
 
 import tkinter as tk
 
-from linux_cru import app, cosmic, persist, privileged, theme, xorg
+from kscreenctl_stub import Stub
+from linux_cru import app, cosmic, kwin, persist, privileged, theme, xorg
 from linux_cru.detect import Environment, GPU, Connector
 from linux_cru import detect as dm
 
@@ -161,16 +163,62 @@ def test_plasma_6_8_takes_the_timings_as_they_are():
                       gpus=[GPU("card0", "amdgpu")],
                       connectors=[Connector("card0", "DP-1", "connected",
                                             "enabled", True)])
-    root, g = _gui(env)
-    try:
-        for standard in ("cvt", "cvt-rb", "cvt-rb2", "gtf"):
-            g.standard_var.set(standard)
+    with Stub():
+        root, g = _gui(env)
+        try:
+            for standard in ("cvt", "cvt-rb", "cvt-rb2", "gtf"):
+                g.standard_var.set(standard)
+                g.generate_preview()
+                assert g.use_edid_method() is False, \
+                    f"{standard} should not need an EDID override on Plasma 6.8"
+                assert "kscreenctl" in g.preview_text.get("1.0", "end")
+        finally:
+            root.destroy()
+
+
+def test_plasma_6_8_works_on_the_nvidia_driver():
+    """The exact timings are accepted by the driver, so no EDID override.
+
+    Verified on Plasma 6.8.0 with the NVIDIA 615 driver: KWin hands the
+    timings over and the display runs them.
+    """
+    env = Environment(session_type="wayland", desktop="KDE", compositor="kwin",
+                      compositor_version=(6, 8, 0),
+                      gpus=[GPU("card0", "nvidia")],
+                      connectors=[Connector("card0", "DP-1", "connected",
+                                            "enabled", True)])
+    with Stub():
+        root, g = _gui(env)
+        try:
+            g.standard_var.set("cvt-rb2")
             g.generate_preview()
             assert g.use_edid_method() is False, \
-                f"{standard} should not need an EDID override on Plasma 6.8"
-            assert "kscreenctl" in g.preview_text.get("1.0", "end")
+                "Plasma 6.8 hands the timings over, so no EDID override is needed"
+            assert g.method_var.get() == "kwin native", g.method_var.get()
+        finally:
+            root.destroy()
+
+
+def test_without_kscreenctl_the_edid_override_is_used():
+    """Plasma 6.8 without kscreenctl cannot take the timings as they are."""
+    env = Environment(session_type="wayland", desktop="KDE", compositor="kwin",
+                      compositor_version=(6, 8, 0),
+                      gpus=[GPU("card0", "amdgpu")],
+                      connectors=[Connector("card0", "DP-1", "connected",
+                                            "enabled", True)])
+    real = kwin.available
+    kwin.available = lambda: False
+    try:
+        root, g = _gui(env)
+        try:
+            g.standard_var.set("cvt-rb2")
+            g.generate_preview()
+            assert g.use_edid_method() is True, \
+                "without kscreenctl the timings have to go in through the EDID"
+        finally:
+            root.destroy()
     finally:
-        root.destroy()
+        kwin.available = real
 
 
 def test_plasma_6_6_only_takes_what_it_can_compute():

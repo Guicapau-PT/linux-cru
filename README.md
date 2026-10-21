@@ -6,6 +6,10 @@ A fork of [PhialsBasement/linux-cru](https://github.com/PhialsBasement/linux-cru
 
 ![Linux CRU on COSMIC with a custom 2560x1440 mode active](screenshot.png)
 
+The same tool on KDE Plasma 6.8, where the timings go to KWin as they are — no EDID override, so adaptive sync keeps working:
+
+![Linux CRU on KDE Plasma 6.8 with the kscreenctl commands](screenshot-plasma.png)
+
 ## Features
 
 - **Works on X11 and Wayland.** Detects your session, compositor and GPU, and picks the method that actually works there — xrandr on X11, native custom modes on KWin (Plasma 6.6+), sway and Hyprland, or a kernel EDID override everywhere else (GNOME, COSMIC, NVIDIA on Wayland).
@@ -89,7 +93,7 @@ The tool never changes your resolution behind your back: applying a custom mode 
 | **KDE Plasma on X11** | The mode is written to `/etc/X11/xorg.conf.d/10-linux-cru.conf` and needs a restart of X to appear. (Plasma 6.8 is the last release with an X11 session.) |
 | **GNOME** | No custom modes at all; an EDID override is the only option. |
 | **sway / Hyprland** | The compositor takes the exact modeline. |
-| **NVIDIA on Wayland** | The driver rejects custom modes from the compositor, so the EDID override is used. Note that EDID overrides currently break VRR on NVIDIA. |
+| **NVIDIA on Wayland** | The driver rejects custom modes from the compositor, so the EDID override is used — **except on Plasma 6.8 and newer, where KWin hands over the exact timings and the driver accepts them**. Note that EDID overrides break VRR on NVIDIA, so the Plasma 6.8 route is the better one there. |
 
 ### CachyOS and Arch
 

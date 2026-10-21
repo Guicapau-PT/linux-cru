@@ -13,7 +13,7 @@ import subprocess
 
 from dataclasses import dataclass, field
 
-from . import cosmic, hostenv
+from . import cosmic, hostenv, kwin
 
 
 def _read(path):
@@ -122,6 +122,17 @@ class Environment:
         the standards it could reproduce were possible.
         """
         return self.compositor == "kwin" and self.compositor_version >= (6, 8)
+
+    @property
+    def kde_kscreenctl_available(self):
+        """Plasma 6.8's kscreenctl is here, so the timings go as they are.
+
+        Verified on the NVIDIA driver (615.78.08, Plasma 6.8.0): KWin
+        hands the exact timings over and the driver accepts the mode,
+        so an EDID override is not needed -- and without the override
+        adaptive sync keeps working.
+        """
+        return self.kde_modeline_modes_available and kwin.available()
 
     @property
     def nvidia_edid_override_ok(self):
@@ -363,15 +374,15 @@ def compositor_can_apply(env: Environment, standard: str) -> bool:
     """
     if env.session_type == "x11":
         return True                      # xrandr takes a full modeline
+    if env.kde_kscreenctl_available:
+        # Plasma 6.8 hands the timings to KWin as they are, and the
+        # driver accepts the result -- the NVIDIA driver included.
+        return True
     if env.has_nvidia_proprietary:
         return False                     # the driver rejects them all
     if env.compositor in ("sway", "hyprland"):
         return True                      # both accept a full modeline
     if env.compositor == "kwin":
-        if env.kde_modeline_modes_available:
-            # kscreenctl takes the modeline as it is, so every timing
-            # standard can be used exactly as calculated.
-            return True
         # kscreen-doctor takes width/height/refresh plus a blanking
         # choice; KWin then computes CVT or CVT-RB with libxcvt.
         return env.kde_custom_modes_available and standard in ("cvt", "cvt-rb")
@@ -754,10 +765,12 @@ def describe_paths(env: Environment) -> str:
             return (f"{env.compositor} supports custom modelines. "
                     "See the commands in the preview.")
         if env.compositor == "kwin":
-            if env.kde_modeline_modes_available:
+            if env.kde_kscreenctl_available:
                 return ("KDE Plasma takes the timings as they are, through "
                         "kscreenctl, so every timing standard can be used "
-                        "exactly. See the commands in the preview.")
+                        "exactly. Nothing is written to the system, and "
+                        "adaptive sync keeps working. See the commands in "
+                        "the preview.")
             if env.kde_custom_modes_available:
                 return ("KDE Plasma supports custom modes through kscreen-doctor. "
                         "See the commands in the preview.")

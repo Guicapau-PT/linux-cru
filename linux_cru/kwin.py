@@ -221,17 +221,21 @@ def set_vrr_policy(name, policy):
 def apply_mode(name, modeline, width, height, refresh, reduced=False):
     """Add a custom mode and switch to it. Returns (ok, message).
 
-    The mode is addressed by its id when the compositor has one, so
-    that a mode the display already advertises with the same name is
-    not picked instead.
+    The mode is addressed by its id, and the id is found by looking at
+    which one appeared -- the display may already advertise a mode with
+    the same name, and that is not the one that was just added.
     """
+    before = mode_ids(name)
     ok, message = add_custom_mode(name, modeline=modeline, width=width,
                                    height=height, refresh=refresh,
                                    reduced=reduced)
     if not ok:
         return False, message
 
-    mode_id = _mode_id(name, width, height, refresh)
+    added = mode_ids(name) - before
+    mode_id = added.pop() if len(added) == 1 else ""
+    if not mode_id:
+        mode_id = _mode_id(name, width, height, refresh)
     query = mode_id or f"{width}x{height}@{refresh:g}"
     ok, message = set_mode(name, query)
     if not ok:
@@ -239,19 +243,39 @@ def apply_mode(name, modeline, width, height, refresh, reduced=False):
     return True, ""
 
 
+def mode_ids(name):
+    """The ids of the modes an output has."""
+    res = _run([name, "list-modes"], timeout=10)
+    if res.returncode != 0:
+        return set()
+    ids = set()
+    for line in (res.stdout or "").splitlines():
+        m = _MODE_RE.match(line.strip())
+        if m:
+            ids.add(m.group("id"))
+    return ids
+
+
 def _mode_id(name, width, height, refresh):
-    """The id of the mode with these timings, or ''."""
+    """The id of the mode with these timings, or ''.
+
+    The tolerance is the one KDE matches modes with, so a mode that is
+    a hundredth of a hertz away is not the one that was asked for.
+    """
     res = _run([name, "list-modes"], timeout=10)
     if res.returncode != 0:
         return ""
     best = ""
+    best_diff = None
     for line in (res.stdout or "").splitlines():
         m = _MODE_RE.match(line.strip())
         if not m:
             continue
-        if (int(m.group("w")) == width and int(m.group("h")) == height
-                and abs(float(m.group("r")) - refresh) < 0.05):
-            best = m.group("id")
-            if "current" in m.group("flags") or "*" in m.group("flags"):
-                break
+        if int(m.group("w")) != width or int(m.group("h")) != height:
+            continue
+        diff = abs(float(m.group("r")) - refresh)
+        if diff > 0.01:
+            continue
+        if best_diff is None or diff < best_diff:
+            best, best_diff = m.group("id"), diff
     return best

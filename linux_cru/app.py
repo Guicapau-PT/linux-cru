@@ -847,6 +847,10 @@ class LinuxCRU:
             return (f"The mode is added to the display's EDID, because {reason}. "
                     "It then shows up in the display settings and can be "
                     "selected there.")
+        if self.env.kde_kscreenctl_available:
+            return ("The mode is handed to KWin with the exact timings, and "
+                    "applied there. Nothing is written to the system, so "
+                    "adaptive sync keeps working.")
         return ("The mode is handed to the compositor, which applies it "
                 "immediately. Nothing is written to the system.")
 
@@ -927,7 +931,7 @@ class LinuxCRU:
                     f"monitor = {out}, modeline {ml.timing_string()}, 0x0, 1\n")
 
         if env.compositor == "kwin":
-            if env.kde_modeline_modes_available:
+            if env.kde_kscreenctl_available:
                 return ("# Plasma 6.8 and newer take the timings as they are,\n"
                         "# so the mode on the display is exactly the one above.\n"
                         "# Adding the mode also switches to it:\n"
@@ -1257,7 +1261,9 @@ class LinuxCRU:
                 messagebox.showerror(
                     "Error", "Could not read the display configuration.")
             return
-        previous_id, _ = state
+        # Remember what the display was running, not the id of the mode:
+        # the ids are renumbered every time the configuration is applied.
+        previous = detect.current_mode(self.env, out)
 
         ok, msg = wayland.kwin_apply_custom_mode(out, ml, w, h, r, reduced)
         if not ok:
@@ -1265,8 +1271,13 @@ class LinuxCRU:
             return
 
         def revert():
-            wayland.kwin_switch_mode(out, previous_id)
-            wayland.kwin_revert_custom_mode(out, w, h, r)
+            # The display has to leave the mode before it can be taken
+            # away: KWin keeps a custom mode that is in use.
+            if previous:
+                wayland.kwin_switch_to(out, *previous)
+            ok, message = wayland.kwin_revert_custom_mode(out, w, h, r)
+            if not ok:
+                self.log("the custom mode was not removed: " + message)
 
         self.show_revert_dialog(
             out, revert,

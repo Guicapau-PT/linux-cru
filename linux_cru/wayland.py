@@ -221,7 +221,12 @@ def kwin_apply_custom_mode(output, ml, width, height, refresh, reduced=True):
 
 
 def kwin_revert_custom_mode(output, width, height, refresh):
-    """Take a custom mode away again. Returns (ok, message)."""
+    """Take a custom mode away again. Returns (ok, message).
+
+    The mode has to be left before it can be taken away: KWin keeps a
+    custom mode that is in use, and removing it then says nothing at
+    all. So the mode that is on the display has to be changed first.
+    """
     if kwin.available():
         index = kwin.find_custom_mode(output, width, height, refresh)
         if index is None:
@@ -233,8 +238,14 @@ def kwin_revert_custom_mode(output, width, height, refresh):
                     index = i
                     break
         if index is None:
-            return False, "the custom mode is already gone"
-        return kwin.remove_custom_mode(output, index)
+            return True, "the custom mode is already gone"
+        ok, message = kwin.remove_custom_mode(output, index)
+        if not ok:
+            return False, message
+        if kwin.find_custom_mode(output, width, height, refresh) is not None:
+            return False, ("the mode is still in use -- the display has to "
+                           "leave it first")
+        return True, ""
     return kwin_remove_custom_mode(output, width, height)
 
 
@@ -243,6 +254,20 @@ def kwin_switch_mode(output, mode_id):
     if kwin.available():
         return kwin.set_mode(output, mode_id)
     return kwin_set_mode(output, mode_id)
+
+
+def kwin_switch_to(output, width, height, refresh):
+    """Switch a KWin output to a mode, by what it is.
+
+    The mode ids are renumbered every time the output configuration is
+    applied, so an id that was read a moment ago can point at a
+    different mode by the time it is used. A mode is addressed by its
+    size and refresh rate instead.
+    """
+    query = f"{width}x{height}@{refresh:g}"
+    if kwin.available():
+        return kwin.set_mode(output, query)
+    return kwin_set_mode(output, query)
 
 
 def kwin_add_custom_mode(output, width, height, refresh, reduced=True):
