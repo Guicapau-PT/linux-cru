@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import tkinter as tk
 
-from linux_cru import app, cosmic, privileged, theme, xorg
+from linux_cru import app, cosmic, persist, privileged, theme, xorg
 from linux_cru.detect import Environment, GPU, Connector
 from linux_cru import detect as dm
 
@@ -117,18 +117,26 @@ def test_the_theme_can_be_switched():
 def test_the_removed_button_follows_what_is_installed():
     root, g = _gui(_cosmic_env())
     try:
-        g.remove_btn.state(["disabled"])
-        g.refresh_remove_button()
-        assert "disabled" in g.remove_btn.state()
-
         from linux_cru import persist
-        real = persist.installed_connectors
-        persist.installed_connectors = lambda: ["DP-2"]
+        real_edid = persist.installed_connectors
+        real_xorg = xorg.installed
+        persist.installed_connectors = lambda: []
+        xorg.installed = lambda: False
         try:
+            g.refresh_remove_button()
+            assert "disabled" in g.remove_btn.state()
+
+            persist.installed_connectors = lambda: ["DP-2"]
+            g.refresh_remove_button()
+            assert "disabled" not in g.remove_btn.state()
+
+            persist.installed_connectors = lambda: []
+            xorg.installed = lambda: True
             g.refresh_remove_button()
             assert "disabled" not in g.remove_btn.state()
         finally:
-            persist.installed_connectors = real
+            persist.installed_connectors = real_edid
+            xorg.installed = real_xorg
     finally:
         root.destroy()
 
@@ -200,8 +208,11 @@ def test_remove_takes_the_x11_configuration_away_again():
 
     real = privileged.run_as_root
     real_installed = xorg.installed
+    real_connectors = persist.installed_connectors
     privileged.run_as_root = fake_run_as_root
     xorg.installed = lambda: True
+    # No EDID override installed, so only the X11 configuration is removed.
+    persist.installed_connectors = lambda: []
     try:
         g.display_var.set("DP-1")
         g.remove_configuration()
@@ -211,6 +222,7 @@ def test_remove_takes_the_x11_configuration_away_again():
     finally:
         privileged.run_as_root = real
         xorg.installed = real_installed
+        persist.installed_connectors = real_connectors
         root.destroy()
 
 
