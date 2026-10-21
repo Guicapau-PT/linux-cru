@@ -4,7 +4,7 @@ A graphical utility for creating and applying custom display resolutions and ref
 
 A fork of [PhialsBasement/linux-cru](https://github.com/PhialsBasement/linux-cru), with COSMIC support, a reworked interface and fixes on top.
 
-![Linux CRU on COSMIC with a custom 2560x1440 mode active](image.png)
+![Linux CRU on COSMIC with a custom 2560x1440 mode active](screenshot.png)
 
 ## Features
 
