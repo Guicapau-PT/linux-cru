@@ -12,7 +12,7 @@ import re
 import subprocess
 import time
 
-from . import cosmic, detect, hostenv
+from . import cosmic, detect, hostenv, kwin
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -83,6 +83,8 @@ def set_mode(env, output, width, height, refresh):
         return res.returncode == 0, (res.stderr or res.stdout)
 
     if compositor == "kwin":
+        if kwin.available():
+            return kwin.set_mode(output, f"{width}x{height}@{refresh:g}")
         return kwin_set_mode(output, f"{width}x{height}@{refresh:g}")
 
     if compositor == "sway":
@@ -154,7 +156,18 @@ def gnome_set_mode(env, output, width, height, refresh):
 # -- KDE / kscreen-doctor ----------------------------------------------------
 
 def kwin_state(output):
-    """(current_mode_id, set_of_all_mode_ids) for `output`, or None."""
+    """(current_mode_id, set_of_all_mode_ids) for `output`, or None.
+
+    kscreenctl (Plasma 6.8 and newer) is asked first; kscreen-doctor is
+    the fallback for the releases before it.
+    """
+    if kwin.available():
+        out = kwin.output(output)
+        if out:
+            ids = {str(m.get("id")) for m in out.get("modes", [])}
+            current = out.get("mode") or {}
+            return str(current.get("id", "")), ids
+
     res = _run(["kscreen-doctor", "-j"])
     if res.returncode != 0:
         return None
@@ -167,6 +180,69 @@ def kwin_state(output):
             ids = {str(m.get("id")) for m in o.get("modes", [])}
             return str(o.get("currentModeId")), ids
     return None
+
+
+def kwin_apply_custom_mode(output, ml, width, height, refresh, reduced=True):
+    """Add a custom mode to a KWin output and switch to it.
+
+    Returns (ok, message). Plasma 6.8 and newer get the modeline as it
+    is, so the timings on the display are exactly the ones that were
+    calculated; before that the compositor computed them itself.
+    """
+    if kwin.available() and kwin.supports_modelines():
+        return kwin.apply_mode(output, ml.timing_string(), width, height,
+                                refresh, reduced)
+
+    if not kwin.available():
+        # kscreen-doctor: add the mode, then switch to it.
+        state = kwin_state(output)
+        if not state:
+            return False, "could not read the display configuration"
+        _, before = state
+        new_id, err = kwin_add_custom_mode(output, width, height, refresh,
+                                            reduced)
+        if not new_id:
+            return False, err
+        ok, msg = kwin_set_mode(output, new_id)
+        if not ok:
+            kwin_remove_custom_mode(output, width, height)
+            return False, msg
+        return True, ""
+
+    # kscreenctl without modeline support: the plain form.
+    ok, message = kwin.add_custom_mode(output, width=width, height=height,
+                                       refresh=refresh, reduced=reduced)
+    if not ok:
+        return False, message
+    ok, message = kwin.set_mode(output, f"{width}x{height}@{refresh:g}")
+    if not ok:
+        return False, message
+    return True, ""
+
+
+def kwin_revert_custom_mode(output, width, height, refresh):
+    """Take a custom mode away again. Returns (ok, message)."""
+    if kwin.available():
+        index = kwin.find_custom_mode(output, width, height, refresh)
+        if index is None:
+            # Fall back to the first custom mode with this resolution.
+            for i, mode in enumerate(kwin.custom_modes(output)):
+                size = mode.get("resolution", {})
+                if (int(size.get("width", 0)) == width
+                        and int(size.get("height", 0)) == height):
+                    index = i
+                    break
+        if index is None:
+            return False, "the custom mode is already gone"
+        return kwin.remove_custom_mode(output, index)
+    return kwin_remove_custom_mode(output, width, height)
+
+
+def kwin_switch_mode(output, mode_id):
+    """Switch a KWin output to a mode, by its id."""
+    if kwin.available():
+        return kwin.set_mode(output, mode_id)
+    return kwin_set_mode(output, mode_id)
 
 
 def kwin_add_custom_mode(output, width, height, refresh, reduced=True):
@@ -248,6 +324,8 @@ def set_vrr(env, output, policy):
     if policy not in VRR_POLICIES:
         return False, f"unknown adaptive sync policy: {policy}"
     if env.compositor == "kwin":
+        if kwin.available():
+            return kwin.set_vrr_policy(output, policy)
         res = _run(["kscreen-doctor", f"output.{output}.vrrpolicy.{policy}"])
         return res.returncode == 0, (res.stderr or res.stdout)
     if env.compositor == "cosmic":

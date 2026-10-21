@@ -81,6 +81,45 @@ Sources: [wlr output management protocol](https://wayland.app/protocols/wlr-outp
 
 - **Plasma ≤ 6.5**: kscreen-doctor/Settings can only select EDID modes; the accepted workaround was kernel-level EDID override ([community gist](https://gist.github.com/mcjmigdal/3079ca80ad6b18bf077dcadc51563fac), [KDE Discuss](https://discuss.kde.org/t/kde-wayland-custom-resolution-and-refresh-rate/13642)).
 - **Plasma 6.6**: "You can now use the kscreen-doctor tool to add custom screen modes, useful for supporting exotic or misbehaving screens in the Wayland session" — Xaver Hugl, KDE bug 456697 ([This Week in Plasma, 2025-12-13](https://blogs.kde.org/2025/12/13/this-week-in-plasma-wayland-screen-mirroring-and-custom-modes/), release date [OSTechNix](https://ostechnix.com/kde-plasma-6-6-release-features/)). Implementation: [kwin!8534 "backends/drm: support configuring custom modes"](https://invent.kde.org/plasma/kwin/-/merge_requests/8534) + [libkscreen!266](https://invent.kde.org/plasma/libkscreen/-/merge_requests/266) + plasma-wayland-protocols additions.
+- **Plasma 6.8**: the mode can be given as a **full modeline**, and Plasma 6.8 is the **last release with an X11 session** (X11 dropped after 6.8). See the `kscreenctl` section below.
+
+#### kscreenctl — the new command line tool (Plasma 6.8)
+
+`kscreenctl` ([plasma/kscreen](https://invent.kde.org/plasma/kscreen), MR !487) is the successor to `kscreen-doctor`, and it is what a CRU tool wants: **it takes a full modeline**, so the timings that reach the display can be exactly the ones that were calculated. The change that made this possible is KDE bug 517654 ("allow adding non-CVT custom modes"), **fixed in Plasma 6.8.0** ([commit `c6a61c78`](https://invent.kde.org/plasma/kscreen/-/commit/c6a61c78af6b683e84a640273d4a34f971691e03), 2026-08-12, Vlad Zahorodnii, co-authored by Xaver Hugl).
+
+```bash
+# The modeline form: clock, the eight timing values, then the sync flags.
+# The flags are +hsync, -hsync, +vsync, -vsync and interlace.
+kscreenctl DP-1 add-custom-mode 712.75 3840 4160 4576 5312 2160 2163 2168 2237 -hsync +vsync
+
+# The plain form: the compositor computes the timings itself.
+kscreenctl DP-1 add-custom-mode --reduced-blanking 1920x1080@60.0Hz
+```
+
+Verified from the source (`kscreenctl/command/output/add-custom-mode.cpp`):
+
+- The positional argument is `MODE;CLOCK HDISPLAY HSYNC_START HSYNC_END HTOTAL VDISPLAY VSYNC_START VSYNC_END VTOTAL FLAG*` — the same layout an X11 modeline uses, with the clock in MHz. The modeline form needs at least nine arguments; the clock is rounded to kHz.
+- With the modeline form the refresh rate is computed from the timings (`clock * 1000000 / htotal`, integer Hz), so the mode that appears is the one that was asked for, not one the compositor re-derived.
+- `--reduced-blanking` only applies to the plain form; the modeline form already carries the blanking in its numbers.
+- **`add-custom-mode` applies the configuration itself** — unlike kscreen-doctor, there is no second "switch to it" step. If the mode is already in the list it is a no-op and still exits 0.
+- `remove-custom-mode` takes the **index** from `list-custom-modes`, not a mode id.
+
+The rest of the tool's surface (all verified in the same source tree):
+
+```bash
+kscreenctl list-outputs [--json] [--names] [--enabled] [--disabled]
+kscreenctl <output> list-modes            # "<id>:<w>x<h>@<refresh>", '*' current, '!' preferred
+kscreenctl <output> list-custom-modes     # "<index>: <w>x<h>@<refresh>Hz"
+kscreenctl <output> set-mode <id|WxH@RR|WxH>
+kscreenctl <output> remove-custom-mode <index>
+kscreenctl <output> set-vrr-policy never|always|automatic
+kscreenctl <output> set-enabled | toggle-enabled | set-scale | set-position
+kscreenctl <output> set-hdr | set-wcg | set-maxbpc | set-rgb-range | set-overscan
+```
+
+`list-outputs --json` prints the same shape as `kscreen-doctor -j`, and more: per output it has `capabilities` (`vrr`, `hdr`, `custom-modes`, …), the `vrrPolicy`, the `customModes` and the `mode`/`modes` arrays with `current` and `preferred` flags. That makes it the better source for a tool that has to know what a display can do.
+
+**What this changes for a CRU tool:** on Plasma 6.6 and 6.7 the compositor can only produce the timings it computes itself (CVT or CVT-RB), so anything else — CVT-RBv2, GTF, or a modeline pasted from Windows CRU — has to go in through an EDID override. From Plasma 6.8 on, the exact timings go to KWin directly, and every timing standard works.
 
 **Exact syntax (verified in libkscreen `src/doctor/doctor.cpp` on master):**
 ```bash
@@ -229,7 +268,8 @@ Implements wlr-output-management v4 (so `wlr-randr --custom-mode` is available);
 |---|---|---|---|---|---|
 | **GNOME/Mutter** (≥48) | `gdctl set --mode`, D-Bus, GUI | **NO** (issue #2856 open; "not planned") | **NO** | `org.gnome.Mutter.DisplayConfig` D-Bus | `~/.config/monitors.xml` (existing modes only) |
 | **KDE/KWin ≤6.5** | `kscreen-doctor output.X.mode.WxH@RR` | NO | NO | libkscreen / kde-output-management-v2 | `~/.config/kwinoutputconfig.json` |
-| **KDE/KWin 6.6+** (2026-02) | same | **YES** — `output.X.addCustomMode.W.H.mHz[.full\|reduced]` (libxcvt CVT/CVT-RB) | NO | same | same |
+| **KDE/KWin 6.6–6.7** | same | **YES** — `output.X.addCustomMode.W.H.mHz[.full\|reduced]` (libxcvt CVT/CVT-RB only) | NO | same | same |
+| **KDE/KWin 6.8+** | `kscreenctl X set-mode ...` | **YES** — and **full modelines**: `kscreenctl X add-custom-mode <clock> <h...> <v...> <flags>` (adds *and* applies) | **YES** | same | same |
 | **Sway** | `output X mode WxH@RRHz` | **YES** — `mode --custom` (libdisplay-info CVT, full blanking) | **YES** — `output X modeline ...` (DRM only, sway ≥1.7) | sway config / swaymsg / wlr-output-mgmt | sway config |
 | **Hyprland** | `monitor=`/`monitorv2`/Lua `hl.monitor` | via modeline (plain unlisted `WxH@RR` not applied) | **YES** — `mode = modeline <clock> ... ±hsync ±vsync` | hyprland config / hyprctl / wlr-output-mgmt | hyprland.conf / Lua |
 | **Labwc / river** | wlr-randr / kanshi | **YES** — `wlr-randr --custom-mode` | NO (no modeline front-end) | wlr-output-management | autostart scripts / kanshi profiles |
@@ -272,7 +312,7 @@ Because compositor mode lists come from KMS, injecting modes **below** the compo
 
 1. **Backend detection**: key off `XDG_CURRENT_DESKTOP`/`WAYLAND_DISPLAY` + probe: bind `zwlr_output_manager_v1` (covers the whole wlroots family + COSMIC + niri with one client implementation, including `set_custom_mode`); D-Bus `org.gnome.Mutter.DisplayConfig` for GNOME (mode *selection* only); shell out to `kscreen-doctor` (or link libkscreen) for KDE, gating `addCustomMode` on Plasma ≥ 6.6.
 2. **Custom-mode writers**: reuse the modeline generator for Sway (`output modeline`), Hyprland (`modeline` in conf — mind the hyprlang→Lua transition at 0.55), Weston (`weston.ini`), and kernel EDID/`video=` fallback. For KWin 6.6 and wlroots `set_custom_mode`, emit `W/H/refresh(+blanking flag)` instead — the compositor computes CVT.
-3. **Hard walls to surface in the UI**: GNOME = no compositor-level custom modes, period (offer the EDID-override flow); COSMIC = custom modes currently rejected (open bug); KDE < 6.6 = same, suggest upgrade or EDID override; KWin 6.6 add-then-apply must be two steps.
+3. **Hard walls to surface in the UI**: GNOME = no compositor-level custom modes, period (offer the EDID-override flow); COSMIC = custom modes currently rejected (open bug); KDE < 6.6 = same, suggest upgrade or EDID override; KWin 6.6 add-then-apply must be two steps — **from 6.8 on, kscreenctl takes the modeline and does both at once**.
 4. **Waiting for the mode is two different waits.** After an EDID override the kernel's connector mode list has the new mode immediately, but the compositor keeps its own copy of the mode list and may not read it again while it runs (confirmed on COSMIC, §3.4). A tool has to wait for the *compositor's* list before it asks the compositor to select the mode, and to say "the desktop has not read the display yet" when it does not turn up — otherwise the failure looks like "the driver refused the mode", which is a different problem with a different fix.
 
 Sources not linked inline above: [sway releases](https://github.com/swaywm/sway/releases), [Plasma 6.6 display improvements](https://linuxiac.com/kde-plasma-6-6-will-enhance-display-handling-and-scaling-on-wayland/), [kscreen-doctor overview](https://linuxcommandlibrary.com/man/kscreen-doctor), [Manjaro forum: custom VGA resolution on Wayland](https://forum.manjaro.org/t/how-can-i-make-a-custom-resolution-for-vga-monitor-in-wayland/174597), [Hyprland mode-not-listed discussion](https://github.com/hyprwm/Hyprland/discussions/12064), [mutter VRR MR !1154](https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/1154).

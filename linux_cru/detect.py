@@ -115,6 +115,15 @@ class Environment:
         return self.compositor == "kwin" and self.compositor_version >= (6, 6)
 
     @property
+    def kde_modeline_modes_available(self):
+        """kscreenctl takes a full modeline; that landed in Plasma 6.8.
+
+        Before it, the compositor computed the timings itself, so only
+        the standards it could reproduce were possible.
+        """
+        return self.compositor == "kwin" and self.compositor_version >= (6, 8)
+
+    @property
     def nvidia_edid_override_ok(self):
         """drm.edid_firmware honored by the NVIDIA driver: >=535 + kernel >=6.2."""
         return (self.nvidia_version >= (535,)
@@ -359,6 +368,10 @@ def compositor_can_apply(env: Environment, standard: str) -> bool:
     if env.compositor in ("sway", "hyprland"):
         return True                      # both accept a full modeline
     if env.compositor == "kwin":
+        if env.kde_modeline_modes_available:
+            # kscreenctl takes the modeline as it is, so every timing
+            # standard can be used exactly as calculated.
+            return True
         # kscreen-doctor takes width/height/refresh plus a blanking
         # choice; KWin then computes CVT or CVT-RB with libxcvt.
         return env.kde_custom_modes_available and standard in ("cvt", "cvt-rb")
@@ -382,6 +395,10 @@ def why_edid_needed(env: Environment, standard: str) -> str:
         reasons.append("the NVIDIA driver does not accept custom modes from "
                        "Wayland compositors")
     if env.compositor == "kwin":
+        if env.kde_modeline_modes_available:
+            return (f"KDE Plasma {_fmt_ver(env.compositor_version)} takes the "
+                    "timings as they are (kscreenctl), so every timing "
+                    "standard can be used")
         if not env.kde_custom_modes_available:
             reasons.append(f"KDE Plasma {_fmt_ver(env.compositor_version)} "
                            "cannot add custom modes (that needs Plasma 6.6 or "
@@ -595,6 +612,16 @@ def _modes_xrandr(output):
 
 
 def _modes_kscreen(output):
+    """The modes of a KWin output.
+
+    kscreenctl (Plasma 6.8 and newer) is asked first: it knows the
+    modes the compositor really has, custom ones included.
+    """
+    from . import kwin
+    if kwin.available():
+        modes = kwin.modes(output)
+        if modes:
+            return modes
     import json
     out = _run(["kscreen-doctor", "-j"])
     if not out:
@@ -727,6 +754,10 @@ def describe_paths(env: Environment) -> str:
             return (f"{env.compositor} supports custom modelines. "
                     "See the commands in the preview.")
         if env.compositor == "kwin":
+            if env.kde_modeline_modes_available:
+                return ("KDE Plasma takes the timings as they are, through "
+                        "kscreenctl, so every timing standard can be used "
+                        "exactly. See the commands in the preview.")
             if env.kde_custom_modes_available:
                 return ("KDE Plasma supports custom modes through kscreen-doctor. "
                         "See the commands in the preview.")

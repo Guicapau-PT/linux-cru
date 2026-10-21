@@ -19,8 +19,8 @@ import tkinter as tk
 from datetime import datetime
 from tkinter import messagebox, ttk
 
-from . import (detect, edid, hostenv, override, persist, privileged, settings,
-               stretch, theme, timings, wayland, xorg)
+from . import (detect, edid, hostenv, kwin, override, persist, privileged,
+               settings, stretch, theme, timings, wayland, xorg)
 
 TEST_REVERT_SECONDS = 15
 
@@ -927,6 +927,15 @@ class LinuxCRU:
                     f"monitor = {out}, modeline {ml.timing_string()}, 0x0, 1\n")
 
         if env.compositor == "kwin":
+            if env.kde_modeline_modes_available:
+                return ("# Plasma 6.8 and newer take the timings as they are,\n"
+                        "# so the mode on the display is exactly the one above.\n"
+                        "# Adding the mode also switches to it:\n"
+                        f"kscreenctl {out} add-custom-mode {ml.timing_string()}\n\n"
+                        "# Switch back to a mode the display already had:\n"
+                        f"kscreenctl {out} set-mode {w}x{h}@{r:g}\n\n"
+                        "# Take the custom mode away again:\n"
+                        f"kscreenctl {out} remove-custom-mode 0\n")
             mhz = int(round(r * 1000))
             blanking = "full" if self.standard_var.get() == "cvt" else "reduced"
             return ("# KWin takes resolution, refresh rate and a blanking\n"
@@ -1233,27 +1242,22 @@ class LinuxCRU:
 
     def test_mode_kwin(self, out):
         w, h, r = self.read_inputs()
+        name, ml = self.current_modeline()
+        reduced = self.standard_var.get() != "cvt"
         state = wayland.kwin_state(out)
         if not state:
             messagebox.showerror("Error", "Could not read the display configuration.")
             return
         previous_id, _ = state
 
-        reduced = self.standard_var.get() != "cvt"
-        new_id, err = wayland.kwin_add_custom_mode(out, w, h, r, reduced)
-        if not new_id:
-            messagebox.showerror("Error", f"Could not add the mode:\n{err}")
-            return
-
-        ok, msg = wayland.kwin_set_mode(out, new_id)
+        ok, msg = wayland.kwin_apply_custom_mode(out, ml, w, h, r, reduced)
         if not ok:
-            wayland.kwin_remove_custom_mode(out, w, h)
-            messagebox.showerror("Error", f"Could not switch to the mode:\n{msg}")
+            messagebox.showerror("Error", f"Could not apply the mode:\n{msg}")
             return
 
         def revert():
-            wayland.kwin_set_mode(out, previous_id)
-            wayland.kwin_remove_custom_mode(out, w, h)
+            wayland.kwin_switch_mode(out, previous_id)
+            wayland.kwin_revert_custom_mode(out, w, h, r)
 
         self.show_revert_dialog(
             out, revert,
