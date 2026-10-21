@@ -68,7 +68,7 @@ The tool never changes your resolution behind your back: applying a custom mode 
 
 | Desktop | What happens |
 |---|---|
-| **COSMIC** | The mode is added to the display's EDID (COSMIC cannot create modes of its own) and then selected with `cosmic-randr`. It shows up in Settings → Displays. |
+| **COSMIC** | The mode is added to the display's EDID (COSMIC cannot create modes of its own) and then selected with `cosmic-randr`. COSMIC reads the display's modes when it starts, so the mode appears in Settings → Displays after the next login. |
 | **KDE Plasma 6.6+** | The mode is added with `kscreen-doctor output.X.addCustomMode...` and applied with `kscreen-doctor output.X.mode...`. KDE saves it in `~/.config/kwinoutputconfig.json`. |
 | **KDE Plasma below 6.6** | No custom modes; an EDID override is used instead. |
 | **KDE Plasma on X11** | The mode is written to `/etc/X11/xorg.conf.d/10-linux-cru.conf` and needs a restart of X to appear. |
@@ -79,7 +79,7 @@ The tool never changes your resolution behind your back: applying a custom mode 
 ### CachyOS and Arch
 
 - The EDID files are installed in `/var/lib/linux-cru/firmware/edid/` (not `/usr/lib/firmware`), so the tool works on immutable systems as well.
-- The boot service is a plain systemd unit (`/etc/systemd/system/linux-cru-edid.service`); it runs before the display manager and does not touch the boot configuration.
+- The boot service is a plain systemd unit (`/etc/systemd/system/linux-cru-edid.service`); it runs before the display manager and does not touch the boot configuration. It is what makes the mode show up in the display settings at every login — some desktops (COSMIC, GNOME) only read the display's modes when they start, so a live override is not enough for them.
 - If you want the mode at the boot console and the login screen as well, the kernel command line method is used instead: the file is added to the initramfs with `mkinitcpio` and `drm.edid_firmware=` is added to the kernel command line. Remove it from the bootloader menu if the display does not come up.
 
 ## Warning

@@ -229,6 +229,19 @@ echo 1 | sudo tee /sys/kernel/debug/dri/1/DP-1/trigger_hotplug
 
 Both still work on 6.x+ kernels. `trigger_hotplug` is the most thorough on amdgpu (calls `dc_link_detect(DETECT_REASON_HPD)` and `amdgpu_dm_update_connector_after_detect()`, emits a real hotplug uevent so compositors re-enumerate). The generic `status` write reprobes modes, but some compositors won't refresh their mode list without a hotplug uevent — for a utility, prefer (b) on amdgpu and fall back to (a)+`udevadm trigger` elsewhere. i915 re-reads on (a) reliably.
 
+**A reprobe is not the same as the compositor reading the modes.** *Field note, verified 2026-10-21 on kernel 7.2 / NVIDIA 580 (COSMIC):* after the override is written, the kernel's connector mode list has the new mode immediately (`/sys/class/drm/card1-DP-2/modes`), and so does the connector's EDID — but the compositor kept its own, older list and refused the mode (`ModeNotFound`). Writing `detect` to `status` and `1` to `trigger_hotplug` did not change that; neither did a detach/reattach through `cosmic-randr disable`/`enable` (the disable was refused: "configuration failed"). The reliable ways to get the compositor to look again are a **physical replug** or a **logout/login**; the detach/reattach that does work at the kernel level is writing `disconnect` and then `detect` to the connector's `status` file, which is what a replug does in software:
+
+```bash
+# (d) Kernel-level replug: the connector goes away and comes back, so the
+#     compositor has to create the output again and reads the modes anew.
+#     The screen is blank while the connector is away.
+echo disconnect | sudo tee /sys/class/drm/card1-DP-1/status
+sleep 1
+echo detect     | sudo tee /sys/class/drm/card1-DP-1/status
+```
+
+A utility should offer (d) with a clear warning (the screen goes blank, and if it does not come back the display has to be plugged in again), and should treat "the kernel has the mode" and "the compositor has the mode" as two different things to wait for.
+
 **Runtime caveat vs boot-time:** overriding at runtime can race with the compositor's cached state; VRR/HDR properties derived from the old EDID may persist until the compositor reinitializes the output. Boot-time firmware override is the reliable end-state; runtime is the "test before you persist" path — exactly the Apply/Persist split a CRU UI wants.
 
 ### 4.3 Bonus runtime path: the module parameter is writable
@@ -256,6 +269,17 @@ This survives compositor restarts (unlike debugfs on some drivers) but not reboo
 - **nouveau:** uses core helpers, works on modern kernels; there was a real bug where it ignored `drm.edid_firmware` (Red Hat [bug 1677021](https://bugzilla.redhat.com/show_bug.cgi?id=1677021), ~4.20-era, since fixed). Fine on 6.x.
 - **NVIDIA proprietary (`nvidia-drm`) — brief, covered in depth in the NVIDIA report:** it does **not** use the kernel's EDID fetch path, so **`drm.edid_firmware` alone is silently ignored** ([Arch forums](https://bbs.archlinux.org/viewtopic.php?id=280081), [NVIDIA forums](https://forums.developer.nvidia.com/t/nvidia-driver-ignoring-custom-edid-using-drm-edid-firmware/229658)). Community findings: combining with `video=<conn>:e` makes the firmware EDID take on some driver versions; the debugfs `edid_override` write works as a runtime workaround; the driver reads it at boot/modeset and won't hot-reload; overrides can disable VRR ("VRR capable: immutable range 0-1-0", [NVIDIA forum](https://forums.developer.nvidia.com/t/overriding-edid-makes-vrr-stop-working-under-wayland-vrr-capable-immutable-range-0-1-0/302929/3)); regressions occur across driver releases (e.g. [580.105.08](https://forums.developer.nvidia.com/t/custom-edid-stopped-working-after-updating-to-580-105-08/351963)). Under X it has its own `CustomEDID` option. The utility must special-case NVIDIA.
 - **Virtual drivers (qxl/virtio/vmwgfx):** since the 4.15 rework, override application depends on the driver actually going through `drm_do_get_edid()` at detect; some virtual drivers historically bypassed it ([0xf8.org write-up](https://www.0xf8.org/2020/12/why-your-kernels-drm-edid_firmware-parameter-doesnt-work-anymore-in-libvirt-environments/)).
+
+### 5.1 Field note: the NVIDIA driver ignores DisplayID timings (verified 2026-10-21)
+
+On an AOC U34E2M (3440x1440) with the NVIDIA 580 driver, the display's own EDID advertises **2560x1440** — but only in its **DisplayID extension**, as three Type I records (398.640 MHz @ 100.000 Hz twice, 398.570 MHz @ 99.982 Hz). Neither the kernel nor the compositor ever turned those into a mode: the connector's mode list had no 2560x1440 at all, so the resolution was simply not selectable.
+
+Adding the same timing as a **CTA-861 detailed timing descriptor** (in the extension's DTD area) worked at once — the kernel created the mode and the connector's mode list grew `2560x1440`. So the practical rule for this driver is:
+
+- **A mode that the display only advertises through DisplayID does not exist.** Patch it into the CTA DTD area (or the base block's free descriptor slot) instead.
+- This is also why the override is worth doing even for a mode the display claims to support: the claim and the mode are not the same thing.
+
+The patched EDID ends up carrying the timing twice (once in the DTD the driver reads, once in the DisplayID block the driver ignores), which is harmless.
 
 ---
 
