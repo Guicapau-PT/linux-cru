@@ -12,7 +12,7 @@ import re
 import subprocess
 import time
 
-from . import hostenv
+from . import cosmic, hostenv
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -76,12 +76,35 @@ def set_mode(env, output, width, height, refresh):
     if compositor == "mutter":
         return gnome_set_mode(env, output, width, height, refresh)
 
-    if env.is_wlroots_family:
+    if compositor == "cosmic":
+        return cosmic_set_mode(output, width, height, refresh)
+
+    if env.supports_wlr_output_management:
         res = _run(["wlr-randr", "--output", output, "--mode",
                     f"{width}x{height}@{refresh:g}Hz"])
         return res.returncode == 0, (res.stderr or res.stdout)
 
     return False, f"no way to change the mode on {compositor}"
+
+
+def cosmic_set_mode(output, width, height, refresh):
+    """Switch a COSMIC output to a mode it already advertises.
+
+    COSMIC will not create a mode (pop-os/cosmic-epoch#2577), so this
+    only selects one that an EDID override has already put in the list.
+    cosmic-randr is tried first, then the generic wlr-randr, which talks
+    to the same protocol.
+    """
+    ok, message = cosmic.set_mode(output, width, height, refresh)
+    if ok:
+        return True, ""
+    if cosmic.available():
+        return False, message
+    res = _run(["wlr-randr", "--output", output, "--mode",
+                f"{width}x{height}@{refresh:g}Hz"])
+    if res.returncode == 0:
+        return True, ""
+    return False, (res.stderr or res.stdout or message)
 
 
 def gnome_set_mode(env, output, width, height, refresh):
@@ -186,6 +209,32 @@ def kwin_remove_custom_mode(output, width, height):
                             f"output.{output}.removeCustomMode.{m.group(1)}"])
                 return res.returncode == 0
     return False
+
+
+# -- adaptive sync (VRR) --------------------------------------------------------
+
+# The policies the compositors agree on. KWin calls them vrrpolicy,
+# COSMIC calls it adaptive sync, and both mean the same thing.
+VRR_POLICIES = ("never", "always", "automatic")
+
+_COSMIC_VRR = {"never": "false", "always": "true", "automatic": "automatic"}
+
+
+def vrr_supported(env):
+    """True when this compositor can be told to use adaptive sync."""
+    return env.compositor in ("kwin", "cosmic")
+
+
+def set_vrr(env, output, policy):
+    """Set the adaptive sync policy of an output. Returns (ok, message)."""
+    if policy not in VRR_POLICIES:
+        return False, f"unknown adaptive sync policy: {policy}"
+    if env.compositor == "kwin":
+        res = _run(["kscreen-doctor", f"output.{output}.vrrpolicy.{policy}"])
+        return res.returncode == 0, (res.stderr or res.stdout)
+    if env.compositor == "cosmic":
+        return cosmic.set_adaptive_sync(output, _COSMIC_VRR[policy])
+    return False, f"{env.compositor} cannot be told to use adaptive sync"
 
 
 # -- sway ---------------------------------------------------------------------

@@ -13,7 +13,7 @@ import subprocess
 
 from dataclasses import dataclass, field
 
-from . import hostenv
+from . import cosmic, hostenv
 
 
 def _read(path):
@@ -79,6 +79,8 @@ class Environment:
     bootloader: str = "unknown"          # grub / systemd-boot / unknown
     nvidia_version: tuple = ()
     nvidia_drm_modeset: bool = False
+    distro: str = ""                     # "CachyOS", "Fedora", ...
+    distro_id: str = ""                  # cachyos / fedora / arch / ...
 
     # -- convenience -------------------------------------------------------
 
@@ -96,6 +98,16 @@ class Environment:
     @property
     def is_wlroots_family(self):
         return self.compositor in ("sway", "hyprland", "labwc", "river", "niri", "wayfire")
+
+    @property
+    def supports_wlr_output_management(self):
+        """Compositors that speak the wlr output management protocols.
+
+        COSMIC counts even though it is not wlroots: cosmic-comp
+        implements the same protocols, which is why wlr-randr works there
+        too.
+        """
+        return self.is_wlroots_family or self.compositor == "cosmic"
 
     @property
     def kde_custom_modes_available(self):
@@ -124,7 +136,22 @@ def detect() -> Environment:
     env.bootloader = _bootloader()
     env.nvidia_version = _version_tuple(_read("/sys/module/nvidia/version"))
     env.nvidia_drm_modeset = _read("/sys/module/nvidia_drm/parameters/modeset") == "Y"
+    env.distro, env.distro_id = _distro()
     return env
+
+
+def _distro():
+    """(pretty name, id) of the running distribution, or ("", "")."""
+    values = {}
+    try:
+        with open("/etc/os-release") as f:
+            for line in f:
+                key, _, value = line.partition("=")
+                values[key.strip()] = value.strip().strip('"')
+    except OSError:
+        return "", ""
+    name = values.get("PRETTY_NAME") or values.get("NAME") or ""
+    return name, values.get("ID", "")
 
 
 # Compositors that serve Wayland. Used to work out what is running when
@@ -335,31 +362,45 @@ def compositor_can_apply(env: Environment, standard: str) -> bool:
         # kscreen-doctor takes width/height/refresh plus a blanking
         # choice; KWin then computes CVT or CVT-RB with libxcvt.
         return env.kde_custom_modes_available and standard in ("cvt", "cvt-rb")
+    if env.compositor == "cosmic":
+        # cosmic-comp rejects set_custom_mode for modes that are not in
+        # the display's list (pop-os/cosmic-epoch#2577), so the mode has
+        # to be injected below the compositor.
+        return False
     if env.is_wlroots_family:
         # wlr-randr's custom mode is CVT with full blanking only.
         return standard == "cvt"
-    return False                         # GNOME, COSMIC, anything unknown
+    return False                         # GNOME, anything unknown
 
 
 def why_edid_needed(env: Environment, standard: str) -> str:
     """Short reason the compositor cannot apply these timings."""
     name = {"cvt": "CVT", "cvt-rb": "CVT-RB", "cvt-rb2": "CVT-RBv2"}.get(
         standard, standard)
+    reasons = []
     if env.has_nvidia_proprietary:
-        return "the NVIDIA driver does not accept custom modes from Wayland " \
-               "compositors"
+        reasons.append("the NVIDIA driver does not accept custom modes from "
+                       "Wayland compositors")
     if env.compositor == "kwin":
         if not env.kde_custom_modes_available:
-            return (f"KDE Plasma {_fmt_ver(env.compositor_version)} cannot add "
-                    "custom modes (that needs Plasma 6.6 or newer)")
-        return f"KWin cannot generate {name} timings"
-    if env.is_wlroots_family:
-        return f"{env.compositor} can only generate CVT timings with full blanking"
-    if env.compositor == "mutter":
-        return "GNOME cannot add custom modes"
-    if env.compositor == "cosmic":
-        return "custom modes are currently broken in COSMIC"
-    return f"{env.compositor} cannot add custom modes"
+            reasons.append(f"KDE Plasma {_fmt_ver(env.compositor_version)} "
+                           "cannot add custom modes (that needs Plasma 6.6 or "
+                           "newer)")
+        else:
+            reasons.append(f"KWin cannot generate {name} timings")
+    elif env.is_wlroots_family:
+        reasons.append(f"{env.compositor} can only generate CVT timings with "
+                       "full blanking")
+    elif env.compositor == "mutter":
+        reasons.append("GNOME cannot add custom modes")
+    elif env.compositor == "cosmic":
+        reasons.append("COSMIC cannot create custom modes of its own "
+                       "(pop-os/cosmic-epoch#2577)")
+    if not reasons:
+        reasons.append(f"{env.compositor} cannot add custom modes")
+    if len(reasons) == 1:
+        return reasons[0]
+    return " and ".join([", ".join(reasons[:-1]), reasons[-1]])
 
 
 # -- current mode of an output ----------------------------------------------
@@ -379,6 +420,8 @@ def current_mode(env: Environment, output: str):
         elif env.session_type == "wayland":
             if env.compositor == "kwin":
                 mode = _current_mode_kscreen(output)
+            elif env.compositor == "cosmic":
+                mode = cosmic.current_mode(output)
             elif env.compositor == "sway":
                 mode = _current_mode_sway(output)
             elif env.compositor == "hyprland":
@@ -396,6 +439,21 @@ def current_mode(env: Environment, output: str):
     return mode
 
 
+def _parse_xrandr_mode(name):
+    """(width, height) from an xrandr mode name.
+
+    xrandr prints plain "1920x1080" for most modes, but a mode with a
+    refresh rate in its name looks like "1920x1080_60.00", and a
+    fractional scaling one like "1920x1080_60.00+".
+    """
+    text = name.split("_")[0]
+    width, _, height = text.partition("x")
+    try:
+        return int(width), int(height)
+    except ValueError:
+        return None
+
+
 def _current_mode_xrandr(output):
     out = _run(["xrandr", "-q"])
     if not out:
@@ -408,10 +466,12 @@ def _current_mode_xrandr(output):
             continue
         if in_block and "*" in line:
             tokens = line.split()
-            w, _, h = tokens[0].partition("x")
+            size = _parse_xrandr_mode(tokens[0])
+            if not size:
+                continue
             for tok in tokens[1:]:
                 if "*" in tok:
-                    return int(w), int(h), float(tok.replace("*", "").replace("+", ""))
+                    return size[0], size[1], float(tok.replace("*", "").replace("+", ""))
     return None
 
 
@@ -472,6 +532,162 @@ def _current_mode_wlr_randr(output):
     return None
 
 
+# -- the mode list of an output ------------------------------------------------
+
+def output_modes(env: Environment, output: str):
+    """The modes an output offers, as (width, height, refresh, current).
+
+    The refresh rate is 0.0 when the source does not report one, which
+    is the case for the kernel's own mode list.
+    """
+    modes = []
+    try:
+        if env.session_type == "x11":
+            modes = _modes_xrandr(output)
+        elif env.session_type == "wayland":
+            if env.compositor == "kwin":
+                modes = _modes_kscreen(output)
+            elif env.compositor == "cosmic":
+                modes = _modes_cosmic(output)
+            elif env.compositor == "sway":
+                modes = _modes_sway(output)
+            elif env.compositor == "hyprland":
+                modes = _modes_hyprland(output)
+            elif env.is_wlroots_family:
+                modes = _modes_wlr_randr(output)
+            else:
+                modes = _modes_sysfs(env, output)
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+        return []
+    return modes
+
+
+def _modes_xrandr(output):
+    out = _run(["xrandr", "-q"])
+    if not out:
+        return []
+    modes = []
+    in_block = False
+    for line in out.splitlines():
+        if not line.startswith((" ", "\t")):
+            tokens = line.split()
+            in_block = bool(tokens) and tokens[0] == output
+            continue
+        if not in_block:
+            continue
+        tokens = line.split()
+        if not tokens:
+            continue
+        size = _parse_xrandr_mode(tokens[0])
+        if not size:
+            continue
+        current = "*" in tokens[0] or any("*" in t for t in tokens[1:])
+        refresh = 0.0
+        for tok in tokens[1:]:
+            cleaned = tok.replace("*", "").replace("+", "")
+            try:
+                refresh = float(cleaned)
+                break
+            except ValueError:
+                continue
+        modes.append((size[0], size[1], refresh, current))
+    return modes
+
+
+def _modes_kscreen(output):
+    import json
+    out = _run(["kscreen-doctor", "-j"])
+    if not out:
+        return []
+    modes = []
+    for o in json.loads(out).get("outputs", []):
+        if o.get("name") != output:
+            continue
+        current = str(o.get("currentModeId"))
+        for m in o.get("modes", []):
+            size = m.get("size", {})
+            modes.append((int(size.get("width", 0)), int(size.get("height", 0)),
+                          float(m.get("refreshRate", 0)),
+                          str(m.get("id")) == current))
+    return modes
+
+
+def _modes_cosmic(output):
+    modes = []
+    for out in cosmic.outputs():
+        if out.name != output:
+            continue
+        for m in out.modes:
+            modes.append((m.width, m.height, m.refresh, m.current))
+    return modes
+
+
+def _modes_sway(output):
+    import json
+    out = _run(["swaymsg", "-t", "get_outputs"])
+    if not out:
+        return []
+    modes = []
+    for o in json.loads(out):
+        if o.get("name") != output:
+            continue
+        for m in o.get("modes", []):
+            modes.append((int(m["width"]), int(m["height"]),
+                          m.get("refresh", 0) / 1000.0, False))
+    return modes
+
+
+def _modes_hyprland(output):
+    import json
+    out = _run(["hyprctl", "monitors", "-j"])
+    if not out:
+        return []
+    modes = []
+    for o in json.loads(out):
+        if o.get("name") != output:
+            continue
+        for m in o.get("modes", []):
+            modes.append((int(m["width"]), int(m["height"]),
+                          float(m.get("refresh", 0)), False))
+    return modes
+
+
+def _modes_wlr_randr(output):
+    out = _run(["wlr-randr"])
+    if not out:
+        return []
+    modes = []
+    in_block = False
+    for line in out.splitlines():
+        if not line.startswith((" ", "\t")):
+            in_block = line.split()[0] == output if line.split() else False
+            continue
+        if not in_block:
+            continue
+        m = re.search(r"(\d+)x(\d+)\s+px,\s+([\d.]+)\s+Hz", line)
+        if not m:
+            continue
+        modes.append((int(m.group(1)), int(m.group(2)), float(m.group(3)),
+                      "current" in line))
+    return modes
+
+
+def _modes_sysfs(env: Environment, output):
+    """Resolutions the kernel knows about, without refresh rates."""
+    for c in env.connectors:
+        if c.name != output:
+            continue
+        modes = []
+        for entry in c.modes:
+            width, _, height = entry.partition("x")
+            try:
+                modes.append((int(width), int(height), 0.0, False))
+            except ValueError:
+                continue
+        return modes
+    return []
+
+
 # -- human-readable capability summary --------------------------------------
 
 def describe_paths(env: Environment) -> str:
@@ -486,16 +702,27 @@ def describe_paths(env: Environment) -> str:
                 "Apply Configuration saves it to /etc/X11/xorg.conf.d.")
 
     if env.session_type == "wayland":
+        compositor_note = ""
+        if env.compositor == "cosmic":
+            compositor_note = (" COSMIC cannot create a mode the display does "
+                               "not advertise (pop-os/cosmic-epoch#2577), so "
+                               "the mode is added to the display's EDID and "
+                               "then selected with cosmic-randr.")
+        elif env.compositor == "mutter":
+            compositor_note = (" GNOME has no way to add custom modes, so an "
+                               "EDID override is the only option.")
         if env.has_nvidia_proprietary:
             if env.nvidia_edid_override_ok:
                 return ("The NVIDIA driver does not accept custom modes from Wayland "
                         "compositors. An EDID override is the only way, and your setup "
-                        "supports it. Warning: EDID overrides currently break VRR on NVIDIA.")
+                        "supports it. Warning: EDID overrides currently break VRR on "
+                        "NVIDIA." + compositor_note)
             return ("The NVIDIA driver does not accept custom modes from Wayland "
                     "compositors. An EDID override needs driver 535 or newer, kernel 6.2 "
                     f"or newer, and nvidia-drm.modeset=1. Your setup: driver "
                     f"{_fmt_ver(env.nvidia_version)}, kernel {env.kernel_release}, "
-                    f"modeset {'on' if env.nvidia_drm_modeset else 'off'}.")
+                    f"modeset {'on' if env.nvidia_drm_modeset else 'off'}."
+                    + compositor_note)
         if env.compositor in ("sway", "hyprland"):
             return (f"{env.compositor} supports custom modelines. "
                     "See the commands in the preview.")
@@ -505,12 +732,12 @@ def describe_paths(env: Environment) -> str:
                         "See the commands in the preview.")
             return (f"KDE Plasma {_fmt_ver(env.compositor_version)} cannot add custom "
                     "modes. That needs Plasma 6.6 or newer, or an EDID override.")
-        if env.compositor == "mutter":
-            return ("GNOME has no way to add custom modes. "
-                    "An EDID override is the only option.")
         if env.compositor == "cosmic":
-            return ("Custom modes are currently broken in COSMIC. "
-                    "Use an EDID override instead.")
+            return ("COSMIC cannot create a mode the display does not "
+                    "advertise (pop-os/cosmic-epoch#2577), so the mode is "
+                    "added to the display's EDID and then selected with "
+                    "cosmic-randr (or wlr-randr, which speaks the same "
+                    "protocol). The mode shows up in Settings > Displays.")
         if env.is_wlroots_family:
             return (f"{env.compositor} accepts simple custom modes through wlr-randr. "
                     "Exact timings need an EDID override.")
