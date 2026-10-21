@@ -137,6 +137,39 @@ def build_keep_script(connector):
     return f"#!/bin/bash\ntouch '{keep_flag_path(connector)}'\n"
 
 
+def build_reprobe_script(card, connector):
+    """Shell script (root): make the display be detected again.
+
+    A compositor keeps its own copy of the display's mode list. Some
+    of them only read it again when the connector is detected anew,
+    and a hotplug event on its own is not enough for them. Detaching
+    the connector and attaching it again is what a cable replug does,
+    and it is the one thing that makes every compositor look at the
+    display's modes again.
+
+    The screen goes blank for a moment while the connector is away.
+    If it does not come back, unplugging and plugging the display in
+    again does the same thing by hand.
+    """
+    sysfs = f"/sys/class/drm/{card}-{connector}"
+    dbg = debugfs_path(card, connector)
+    return f"""#!/bin/bash
+# linux-cru: ask the display to be detected again
+set -u
+SYSFS='{sysfs}'
+DBG='{dbg}'
+
+echo disconnect > "$SYSFS/status" 2>/dev/null || true
+sleep 1
+echo detect > "$SYSFS/status" 2>/dev/null || true
+sleep 1
+if [ -e "$DBG/trigger_hotplug" ]; then
+    echo 1 > "$DBG/trigger_hotplug" 2>/dev/null || true
+fi
+echo "connector re-detected"
+"""
+
+
 def build_revert_script(card, connector):
     """Shell script (root): revert the override immediately."""
     dbg = debugfs_path(card, connector)

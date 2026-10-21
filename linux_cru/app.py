@@ -1340,20 +1340,51 @@ class LinuxCRU:
         # copy of the mode list, and a mode it has not read yet cannot
         # be selected.
         if not wayland.wait_for_output_mode(self.env, out, w, h):
-            remove_override()
-            messagebox.showerror(
-                "Error",
-                f"The mode was added to the display's EDID, and the kernel "
-                f"knows about {w}x{h}, but {self.env.compositor} did not "
-                "pick it up.\n\n"
-                "Some compositors only read the display's modes when it is "
-                "detected again: unplug the display and plug it back in, or "
-                "log out and back in, and the mode will be there.\n\n"
-                "Apply (instead of Test mode) puts the mode in the display's "
-                "EDID at every boot, which is the way to make it permanent.")
-            self.set_status(f"The mode was added, but {self.env.compositor} "
-                            "has not read it yet.")
-            return
+            # Ask the display to be detected again. This is what a
+            # replug does, and it is the one thing that makes every
+            # compositor look at the display's modes again. The screen
+            # goes blank for a moment, so ask first.
+            asked = messagebox.askyesno(
+                "Ask the display again?",
+                f"{self.env.compositor} has not read the new mode yet. It "
+                "only reads the display's modes when the display is detected "
+                "again.\n\n"
+                "This tool can ask for that now. The screen goes blank for a "
+                "moment while the display is detected again.\n\n"
+                "If the screen does not come back by itself, unplug the "
+                "display and plug it back in.\n\n"
+                "Do it now?")
+            if asked:
+                self.log(f"{self.env.compositor} has not read the mode yet; "
+                         "asking the display to be detected again.")
+                result = self.run_root_script(
+                    override.build_reprobe_script(card, connector),
+                    "reprobe.sh")
+                if not result.ok:
+                    self.log("the display could not be detected again: "
+                             + result.message)
+                if wayland.wait_for_output_mode(self.env, out, w, h,
+                                                timeout=8.0):
+                    self.log(f"{self.env.compositor} has the mode now.")
+                else:
+                    asked = False
+
+            if not asked:
+                remove_override()
+                messagebox.showerror(
+                    "Error",
+                    f"The mode was added to the display's EDID, and the kernel "
+                    f"knows about {w}x{h}, but {self.env.compositor} did not "
+                    "pick it up.\n\n"
+                    "Some compositors only read the display's modes when the "
+                    "display is plugged in again: unplug it and plug it back "
+                    "in, or log out and back in, and the mode will be there.\n\n"
+                    "Apply (instead of Test mode) puts the mode in the "
+                    "display's EDID at every boot, which is the way to make it "
+                    "permanent.")
+                self.set_status(f"The mode was added, but {self.env.compositor} "
+                                "has not read it yet.")
+                return
 
         ok, message = wayland.set_mode(self.env, out, w, h, r)
         if not ok:
@@ -1598,6 +1629,13 @@ class LinuxCRU:
                 when = ("The mode is in the display's list now and is re-added "
                         "at every boot. Select it in your display settings -- "
                         "your resolution is not changed automatically.")
+            if self.env.compositor in ("cosmic", "mutter"):
+                # These compositors read the display's modes when they
+                # start, not while they run, so the mode shows up after
+                # the next login.
+                when += ("\n\nYour desktop only reads the display's modes when "
+                         "it starts, so log out and back in (or reboot) for "
+                         "the mode to appear in the list.")
             messagebox.showinfo(
                 "Installed",
                 f"The mode was added to {out}'s EDID as a {placement}.\n\n{when}\n\n"

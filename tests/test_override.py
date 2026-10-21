@@ -77,6 +77,16 @@ def test_waiting_for_the_compositor_gives_up():
         detect_module.output_modes = real
 
 
+def test_the_reprobe_script_detaches_and_reattaches():
+    """Detecting the display again is what makes a compositor read its
+    mode list again."""
+    script = override.build_reprobe_script("card1", "DP-2")
+    assert 'echo disconnect > "$SYSFS/status"' in script
+    assert 'echo detect > "$SYSFS/status"' in script
+    assert "/sys/class/drm/card1-DP-2" in script
+    assert "trigger_hotplug" in script
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):
