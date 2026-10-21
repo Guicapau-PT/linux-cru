@@ -2,6 +2,8 @@
 
 A graphical utility for creating and applying custom display resolutions and refresh rates on Linux — the Linux answer to the Windows Custom Resolution Utility. It works out which of the many display paths your system uses and drives the right one for you, on X11 and Wayland, on AMD, Intel and NVIDIA.
 
+A fork of [PhialsBasement/linux-cru](https://github.com/PhialsBasement/linux-cru), with COSMIC support, a reworked interface and fixes on top.
+
 ![Linux CRU on COSMIC with a custom 2560x1440 mode active](image.png)
 
 ## Features
@@ -134,6 +136,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgments
 
-- Based on the Windows Custom Resolution Utility (ToastyX) concept
-- Uses Tkinter for the graphical interface
-- Thanks to all contributors and testers
+- **[PhialsBasement](https://github.com/PhialsBasement/linux-cru)** — the original Linux CRU, which this is a fork of. The research behind the project, the VESA timing calculators, the EDID override engine, the KWin stretch work and the overall design are theirs, and the copyright in [LICENSE](LICENSE) is theirs. This fork adds COSMIC support, the reworked interface, and a number of fixes on top.
+- The [Windows Custom Resolution Utility](https://www.monitortests.com/forum/Thread-Custom-Resolution-Utility-CRU) (ToastyX) — the idea this whole project is modelled on.
+- Everyone who reported a problem, tested a build or sent a patch to either project.
