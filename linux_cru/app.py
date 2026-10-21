@@ -1246,7 +1246,16 @@ class LinuxCRU:
         reduced = self.standard_var.get() != "cvt"
         state = wayland.kwin_state(out)
         if not state:
-            messagebox.showerror("Error", "Could not read the display configuration.")
+            if kwin.available():
+                messagebox.showerror(
+                    "Error",
+                    "kscreenctl could not talk to KWin.\n\n"
+                    "It only works inside a Plasma session. If this is a "
+                    "Plasma session, the display server may not be ready "
+                    "yet — try again in a moment.")
+            else:
+                messagebox.showerror(
+                    "Error", "Could not read the display configuration.")
             return
         previous_id, _ = state
 
