@@ -1336,10 +1336,29 @@ class LinuxCRU:
                 "dmesg.")
             return
 
+        # The kernel having it is not enough: the desktop keeps its own
+        # copy of the mode list, and a mode it has not read yet cannot
+        # be selected.
+        if not wayland.wait_for_output_mode(self.env, out, w, h):
+            remove_override()
+            messagebox.showerror(
+                "Error",
+                f"The mode was added to the display's EDID, and the kernel "
+                f"knows about {w}x{h}, but {self.env.compositor} did not "
+                "pick it up.\n\n"
+                "Some compositors only read the display's modes when it is "
+                "detected again: unplug the display and plug it back in, or "
+                "log out and back in, and the mode will be there.\n\n"
+                "Apply (instead of Test mode) puts the mode in the display's "
+                "EDID at every boot, which is the way to make it permanent.")
+            self.set_status(f"The mode was added, but {self.env.compositor} "
+                            "has not read it yet.")
+            return
+
         ok, message = wayland.set_mode(self.env, out, w, h, r)
         if not ok:
             self.set_status(f"Mode added to {out}, but it could not be "
-                            f"selected automatically.")
+                            f"selected automatically: {message}")
             keep = messagebox.askyesno(
                 "Added, but not applied",
                 f"{w}x{h} at {r:g} Hz was added to {out}, but this tool could "

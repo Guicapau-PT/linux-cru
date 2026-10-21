@@ -12,7 +12,7 @@ import re
 import subprocess
 import time
 
-from . import cosmic, hostenv
+from . import cosmic, detect, hostenv
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -51,6 +51,24 @@ def wait_for_mode(card, connector, width, height, timeout=6.0):
         if kernel_has_mode(card, connector, width, height):
             return True
         time.sleep(0.25)
+    return False
+
+
+def wait_for_output_mode(env, output, width, height, timeout=8.0):
+    """Wait until the compositor lists this mode for the output.
+
+    The kernel knows about a mode as soon as the EDID is patched, but
+    the compositor keeps its own copy of the mode list and only reads
+    it again when the connector is detected anew. Waiting for the
+    compositor is what tells "the driver refused it" apart from "the
+    desktop has not looked yet".
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        for w, h, _refresh, _current in detect.output_modes(env, output):
+            if w == width and h == height:
+                return True
+        time.sleep(0.4)
     return False
 
 

@@ -54,11 +54,21 @@ if [ ! -s "$EDID" ]; then
 fi
 rm -f "$KEEP"
 
+# Re-probe the connector.
+#
+# Writing the override changes the EDID the driver holds, but the
+# connector's mode list is only rebuilt when the connector is detected
+# again, so "detect" comes first. The hotplug event is what tells the
+# compositor to look at the connector again -- without it the new mode
+# stays in the kernel and no desktop ever shows it.
 reprobe() {
+    if [ -w "$SYSFS/status" ]; then
+        echo detect > "$SYSFS/status" 2>/dev/null || true
+    fi
     if [ -e "$DBG/trigger_hotplug" ]; then
-        echo 1 > "$DBG/trigger_hotplug"
+        echo 1 > "$DBG/trigger_hotplug" 2>/dev/null || true
     else
-        echo detect > "$SYSFS/status"
+        echo detect > "$SYSFS/status" 2>/dev/null || true
     fi
 }
 
@@ -66,6 +76,8 @@ if ! cat "$EDID" > "$DBG/edid_override"; then
     echo "ERROR: kernel rejected the EDID override (bad checksum?)" >&2
     exit 1
 fi
+reprobe
+sleep 1
 reprobe
 echo "override active on @CONNECTOR@"
 

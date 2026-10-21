@@ -120,7 +120,9 @@ printf '%s' '{FIRMWARE_SEARCH_PATH}' > /sys/module/firmware_class/parameters/pat
 echo "$value" > /sys/module/drm/parameters/edid_firmware
 
 # Re-probe: the driver already detected these connectors (with the
-# original EDID) before the root filesystem was mounted.
+# original EDID) before the root filesystem was mounted. "detect" makes
+# the driver read the EDID again, which is what puts the new mode in the
+# connector's list; the hotplug event is what tells the desktop about it.
 for f in "$FWDIR/$PREFIX"*.bin; do
     [ -e "$f" ] || continue
     base=$(basename "$f")
@@ -130,10 +132,9 @@ for f in "$FWDIR/$PREFIX"*.bin; do
         [ -e "$path/status" ] || continue
         card=$(basename "$path"); card=${{card%%-*}}
         minor=$(cut -d: -f2 "/sys/class/drm/$card/dev" 2>/dev/null)
+        echo detect > "$path/status" 2>/dev/null || true
         if [ -n "$minor" ] && [ -e "/sys/kernel/debug/dri/$minor/$conn/trigger_hotplug" ]; then
             echo 1 > "/sys/kernel/debug/dri/$minor/$conn/trigger_hotplug" || true
-        else
-            echo detect > "$path/status" || true
         fi
     done
 done
