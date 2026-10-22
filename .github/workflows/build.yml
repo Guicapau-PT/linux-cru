@@ -12,13 +12,16 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Pinned rather than "ubuntu-latest": the label moves to Ubuntu 26
+    # during 2026, and a build that breaks on a runner the project did
+    # not choose is a build that breaks for no reason.
+    runs-on: ubuntu-24.04
     # A test that hangs -- a modal dialog nobody can close, a tool that
     # waits for a compositor that is not there -- would otherwise hold
     # the job for six hours before the runner gives up.
     timeout-minutes: 10
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Install dependencies
       run: |
         sudo apt-get update
@@ -32,9 +35,9 @@ jobs:
 
   build:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
         fetch-depth: 0
 
