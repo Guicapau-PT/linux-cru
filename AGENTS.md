@@ -27,7 +27,8 @@ the wlroots family, or a kernel EDID override everywhere else.
 ## Layout
 
 ```
-linux-cru.py              launcher: --self-test, --version, --detect
+linux-cru.py              launcher: --self-test, --version, --detect,
+                          --remove-overrides, --check-updates
 linux_cru/
   app.py                  the interface (the whole GUI)
   theme.py                the palette, the ttk styles, the fonts
@@ -41,10 +42,13 @@ linux_cru/
   cosmic.py               cosmic-randr (COSMIC)
   stretch.py              stretched resolutions on KWin (a memory poke, see below)
   xorg.py                 the X11 configuration and its install scripts
+  rescue.py               what is installed, and undoing it without the interface
+  update.py               update checks against the fork's releases
   settings.py             the settings kept between runs
   privileged.py           root escalation (pkexec, sudo, password prompt)
   hostenv.py              the environment system tools should see (AppImage)
 tests/                    plain Python, no dependencies
+docs/guide.md             the plain-language guide for users
 docs/research/            the technical reports behind the design
 build_appimage.sh         the AppImage build
 ```
@@ -56,6 +60,7 @@ python3 linux-cru.py             # the interface
 python3 linux-cru.py --detect    # what the tool sees of this machine
 python3 linux-cru.py --self-test # build the whole interface and exit
 python3 linux-cru.py --remove-overrides   # undo everything installed, without a desktop
+python3 linux-cru.py --check-updates      # ask the releases API once, now
 ./build_appimage.sh              # the AppImage (SKIP_APPIMAGE=1 stops at the AppDir)
 ```
 

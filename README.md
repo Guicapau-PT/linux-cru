@@ -4,6 +4,8 @@ A graphical utility for creating and applying custom display resolutions and ref
 
 A fork of [PhialsBasement/linux-cru](https://github.com/PhialsBasement/linux-cru), with COSMIC support, a reworked interface and fixes on top.
 
+**New to the tool?** The [guide](docs/guide.md) explains everything in plain language — what each part of the window does, how resolution versus refresh versus "timing" relate, and full walkthroughs: *2560x1440 with black bars*, and *stretched to fill*, on top of what is actually happening underneath.
+
 ![Linux CRU on COSMIC with a custom 2560x1440 mode active](screenshot.png)
 
 The same tool on KDE Plasma 6.8, where the timings go to KWin as they are — no EDID override, so adaptive sync keeps working:
