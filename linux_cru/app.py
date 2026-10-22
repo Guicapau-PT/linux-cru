@@ -11,9 +11,11 @@ work on the user's part.
 """
 
 import os
+import queue
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import tkinter as tk
 from datetime import datetime
@@ -23,6 +25,17 @@ from . import (detect, edid, hostenv, kwin, override, persist, privileged,
                settings, stretch, theme, timings, wayland, xorg)
 
 TEST_REVERT_SECONDS = 15
+
+# The refresh rates the display settings of Plasma offer, as percent.
+# Integer ones and the quarters are what Plasma itself offers.
+KDE_SCALES = ("100%", "125%", "150%", "175%", "200%")
+
+# Rotations the display settings of Plasma speak.
+KDE_ROTATIONS = ("none", "90", "180", "270", "flipped", "flipped90",
+                 "flipped180", "flipped270")
+
+# Frame buffer depths Plasma offers, in bits per colour.
+KDE_BPCS = (8, 10, 12, 14, 16)
 
 # The resolutions people reach for most often. The chips are a shortcut,
 # not a limit: the fields below take anything.
@@ -170,6 +183,11 @@ class LinuxCRU:
         self._workdir_path = None
         self._modes = []          # the modes of the selected output
         self._modes_output = None
+        self._mode_entries = []   # the same modes, with what is known about each
+        self._kde_settings = None
+        self._closing = False     # the interface is going away
+        self._answers = queue.Queue()   # answers from the worker threads
+        self._pump_id = None      # the timer that drains the answers
 
         self.root.geometry(self.settings.get("geometry") or "1240x820")
         self.root.minsize(980, 640)
@@ -188,6 +206,7 @@ class LinuxCRU:
         self.load_settings_into_form()
         self.refresh_outputs()
         self.generate_preview()
+        self._schedule_pump()
 
     # -- layout -----------------------------------------------------------------
 
@@ -245,6 +264,7 @@ class LinuxCRU:
         self.scroll_frame = left
 
         self.build_display_card(left.body)
+        self.build_display_controls_card(left.body)
         self.build_mode_card(left.body)
         self.build_timing_card(left.body)
         self.build_options_card(left.body)
@@ -337,6 +357,10 @@ class LinuxCRU:
         ttk.Label(body, textvariable=self.monitor_var, style="Muted.TLabel",
                   wraplength=340, justify="left").pack(fill=tk.X, pady=(10, 0))
 
+        self.desktop_var = tk.StringVar()
+        ttk.Label(body, textvariable=self.desktop_var, style="Muted.TLabel",
+                  wraplength=340, justify="left").pack(fill=tk.X)
+
         modes_head = ttk.Frame(body, style="Card.TFrame")
         modes_head.pack(fill=tk.X, pady=(14, 0))
         ttk.Label(modes_head, text="Modes this display offers",
@@ -361,6 +385,64 @@ class LinuxCRU:
         self.mode_tree.configure(yscrollcommand=scroll.set)
         self.mode_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scroll.pack(side=tk.RIGHT, fill="y")
+
+    def build_display_controls_card(self, parent):
+        """What Plasma 6.8 and newer can change about a display.
+
+        These are the settings that decide how a mode looks once it is
+        up: the colour depth, the HDR state, the scale and the
+        rotation. They are changed with the output that is selected
+        above, and they are read back and shown here.
+        """
+        if self.env.compositor != "kwin" or not kwin.available():
+            return
+
+        body = self.card(parent, "Display settings", "Plasma 6.8 and newer")
+
+        self.hdr_var = tk.BooleanVar(value=False)
+        self.wcg_var = tk.BooleanVar(value=False)
+        self.hdr_check = ttk.Checkbutton(
+            body, text="High dynamic range (HDR)", variable=self.hdr_var,
+            command=self.apply_hdr)
+        self.hdr_check.pack(anchor="w")
+        self.wcg_check = ttk.Checkbutton(
+            body, text="Wide colour gamut", variable=self.wcg_var,
+            command=self.apply_wcg)
+        self.wcg_check.pack(anchor="w", pady=(4, 0))
+
+        row = ttk.Frame(body, style="Card.TFrame")
+        row.pack(fill=tk.X, pady=(10, 0))
+        ttk.Label(row, text="Colour depth",
+                  style="Card.TLabel").pack(side=tk.LEFT)
+        self.bpc_var = tk.StringVar()
+        self.bpc_combo = ttk.Combobox(
+            row, textvariable=self.bpc_var, width=8, state="readonly",
+            values=[f"{bpc} bpc" for bpc in KDE_BPCS])
+        self.bpc_combo.pack(side=tk.LEFT, padx=(8, 16))
+        self.bpc_combo.bind("<<ComboboxSelected>>", self.apply_bpc)
+
+        row = ttk.Frame(body, style="Card.TFrame")
+        row.pack(fill=tk.X)
+        ttk.Label(row, text="Scale", style="Card.TLabel").pack(side=tk.LEFT)
+        self.scale_var = tk.StringVar()
+        self.scale_combo = ttk.Combobox(
+            row, textvariable=self.scale_var, width=6, state="readonly",
+            values=list(KDE_SCALES))
+        self.scale_combo.pack(side=tk.LEFT, padx=(8, 16))
+        self.scale_combo.bind("<<ComboboxSelected>>", self.apply_scale)
+
+        ttk.Label(row, text="Rotation", style="Card.TLabel").pack(side=tk.LEFT)
+        self.rotation_var = tk.StringVar()
+        self.rotation_combo = ttk.Combobox(
+            row, textvariable=self.rotation_var, width=10, state="readonly",
+            values=list(KDE_ROTATIONS))
+        self.rotation_combo.pack(side=tk.LEFT, padx=(8, 0))
+        self.rotation_combo.bind("<<ComboboxSelected>>", self.apply_rotation)
+
+        self.controls_state_var = tk.StringVar()
+        ttk.Label(body, textvariable=self.controls_state_var,
+                  style="Muted.TLabel", wraplength=340,
+                  justify="left").pack(fill=tk.X, pady=(8, 0))
 
     def build_mode_card(self, parent):
         body = self.card(parent, "Custom mode")
@@ -475,9 +557,10 @@ class LinuxCRU:
             vrr_row = ttk.Frame(body, style="Card.TFrame")
             vrr_row.pack(fill=tk.X)
             self.vrr_var = tk.StringVar(value="automatic")
-            ttk.Combobox(vrr_row, textvariable=self.vrr_var, width=12,
-                         values=list(wayland.VRR_POLICIES),
-                         state="readonly").pack(side=tk.LEFT)
+            self.vrr_combo = ttk.Combobox(
+                vrr_row, textvariable=self.vrr_var, width=12,
+                values=list(wayland.VRR_POLICIES), state="readonly")
+            self.vrr_combo.pack(side=tk.LEFT)
             ttk.Button(vrr_row, text="Apply", style="Ghost.TButton",
                        command=self.apply_vrr).pack(side=tk.LEFT, padx=(8, 0))
             self.vrr_status_var = tk.StringVar()
@@ -630,6 +713,7 @@ class LinuxCRU:
         self.describe_monitor()
         self.refresh_mode_list()
         self.update_refresh_values()
+        self.refresh_desktop_state()
 
     def get_outputs(self):
         """Output names: xrandr names on X11, DRM connector names on Wayland."""
@@ -656,6 +740,7 @@ class LinuxCRU:
         self.describe_monitor()
         self.refresh_mode_list()
         self.update_refresh_values()
+        self.refresh_desktop_state()
         self.generate_preview()
 
     def describe_monitor(self):
@@ -671,27 +756,57 @@ class LinuxCRU:
         self.monitor_var.set(info.summary())
 
     def refresh_mode_list(self):
-        """List the modes the selected display offers."""
+        """List the modes the selected display offers.
+
+        The modes are asked for off the interface's thread: on KDE the
+        answer is a round trip to KWin, and a window that waits for one
+        stops drawing.
+        """
         for item in self.mode_tree.get_children():
             self.mode_tree.delete(item)
         out = self.display_var.get()
         if not out:
             return
-        for width, height, refresh, current in self.output_modes():
+        if self._modes_output == out and self._modes:
+            self.fill_mode_list(self._modes)
+            return
+        self._modes_output = out
+        self._modes = []
+        self.run_async(lambda: detect.output_mode_entries(self.env, out),
+                       self.on_mode_entries_loaded)
+
+    def on_mode_entries_loaded(self, entries):
+        """The modes came in: show them and offer their refresh rates."""
+        if self._closing or self._modes_output != self.display_var.get():
+            return
+        self._mode_entries = entries or []
+        self._modes = [(entry["width"], entry["height"],
+                        entry["refresh"], entry["current"])
+                       for entry in self._mode_entries]
+        self.fill_mode_list(self._modes)
+        self.update_refresh_values()
+
+    def fill_mode_list(self, modes):
+        """One row per mode, with what the desktop says about it."""
+        self.mode_tree.delete(*self.mode_tree.get_children())
+        for index, (width, height, refresh, current) in enumerate(modes):
             label = f"{width}x{height}"
             if current:
                 label += "  (active)"
+            elif index < len(self._mode_entries) \
+                    and self._mode_entries[index].get("custom"):
+                label += "  (custom)"
             rate = f"{refresh:.3f} Hz" if refresh else "-"
             self.mode_tree.insert("", "end", values=(label, rate))
 
     def output_modes(self):
-        """The modes of the selected output, asked for once per refresh."""
-        out = self.display_var.get()
-        if not out:
+        """The modes that were loaded, which may be none yet.
+
+        The mode list is read off the interface's thread, so right
+        after a display is chosen there is nothing to show yet.
+        """
+        if self._modes_output != self.display_var.get():
             return []
-        if self._modes_output != out:
-            self._modes_output = out
-            self._modes = detect.output_modes(self.env, out)
         return self._modes
 
     def update_refresh_values(self):
@@ -729,6 +844,267 @@ class LinuxCRU:
         self.width_var.set(str(width))
         self.height_var.set(str(height))
         self.generate_preview()
+
+    # -- background work ------------------------------------------------------------
+
+    def run_async(self, work, on_done):
+        """Run `work` off the interface's thread.
+
+        Every call to kscreenctl is a process and a round trip to KWin
+        over DBus, and a window that waits for one stops drawing, which
+        the desktop shows as a stutter. So the questions are asked from
+        a worker and the answers go through a queue, which the timer
+        drains on the interface's thread -- that is where a widget has
+        to be touched, and Tk refuses to hear from anywhere else.
+        """
+        def in_background():
+            try:
+                answer = (on_done, work(), None)
+            except Exception as e:   # the callback decides what to do
+                answer = (on_done, None, e)
+            # A plain queue: a worker may not touch Tk itself.
+            self._answers.put(answer)
+
+        thread = threading.Thread(target=in_background, daemon=True)
+        thread.start()
+        return thread
+
+    def pump_answers(self):
+        """Deliver the answers that came in since the last look."""
+        if self._closing:
+            return
+        while True:
+            try:
+                on_done, result, error = self._answers.get_nowait()
+            except queue.Empty:
+                break
+            if error is not None:
+                self._async_failure(on_done, error)
+                continue
+            try:
+                on_done(result)
+            except tk.TclError:
+                pass  # a widget that was closed meanwhile
+        self._schedule_pump()
+
+    def _schedule_pump(self, ms=50):
+        """Set the next look for answers, unless the interface is gone."""
+        if self._closing:
+            return
+        try:
+            self._pump_id = self.root.after(ms, self.pump_answers)
+        except (tk.TclError, RuntimeError):
+            self._pump_id = None
+
+    def _post(self, callback, ms=0):
+        """Schedule a callback on the interface's thread, if it lives."""
+        try:
+            self.root.after(ms, callback)
+        except (tk.TclError, RuntimeError):
+            pass  # the window went away while the answer was coming
+
+    def cancel_pump(self):
+        """Stop looking for answers; the interface is going away."""
+        tid = self._pump_id
+        self._pump_id = None
+        if not tid:
+            return
+        try:
+            self.root.after_cancel(tid)
+        except (KeyError, ValueError, tk.TclError, RuntimeError):
+            pass
+
+    def _async_failure(self, on_done, error):
+        """A background question failed, which is not a user action.
+
+        The questions that go this way are the ones the interface asks
+        by itself (the mode list, the settings). The message and an
+        empty answer are enough: a modal dialog on every failed refresh
+        would make the tool nag about things nobody asked for.
+        """
+        if self._closing:
+            return
+        self.log(f"could not ask the display: {error}")
+        try:
+            on_done(None)
+        except tk.TclError:
+            pass
+
+    # -- what Plasma says about a display ------------------------------------------
+
+    def refresh_desktop_state(self):
+        """Ask Plasma what it does with the selected output.
+
+        Each answer is a round trip to KWin, so it is asked for off the
+        interface's thread. One JSON answer holds the display settings
+        and the custom modes; it fills the summary in the display card,
+        the display settings card and the adaptive-sync control.
+        """
+        out = self.display_var.get()
+        self.desktop_var.set("")
+        self._kde_settings = None
+        if self.env.compositor != "kwin" or not kwin.available() or not out:
+            return
+
+        def work():
+            return kwin.settings(out), len(kwin.custom_modes(out))
+
+        self.run_async(work, self.show_desktop_state)
+
+    def show_desktop_state(self, values):
+        """Put what Plasma reported into the cards."""
+        if self._closing or not isinstance(values, tuple) or len(values) != 2:
+            return
+        settings, custom_count = values
+        if not isinstance(settings, dict):
+            return
+        self._kde_settings = settings
+        if self.display_var.get():
+            self.desktop_var.set(self.desktop_summary(settings, custom_count))
+        self.show_display_controls(settings)
+        self.update_vrr_state(self.display_var.get())
+
+    def desktop_summary(self, values, custom_count=0):
+        """One line about how the desktop is running this display.
+
+        The scale and the colour depth decide how sharp and how smooth
+        the desktop looks; the HDR state and the custom modes are what
+        the display settings hold for it.
+        """
+        parts = []
+        scale = values.get("scale") or 1
+        if scale != 1:
+            parts.append(f"scaled {scale:g} ({round(scale * 100)}%)")
+        depth = values.get("maxbpc") or 0
+        if depth:
+            parts.append(f"{depth} bpc")
+        if values.get("hdr"):
+            parts.append("HDR on")
+        if custom_count:
+            parts.append(f"{custom_count} custom mode(s) added")
+        return f"Desktop: {' and '.join(parts)}." if parts else ""
+
+    def show_display_controls(self, values):
+        """Fill the display settings card from what Plasma reported."""
+        if self._closing or not values:
+            return
+        hdr_capable = self._hdr_capable()
+
+        depth = values.get("maxbpc") or 8
+        label = f"{depth} bpc"
+        self.bpc_var.set(label if label in self.bpc_combo.cget("values") else "")
+
+        scale = values.get("scale") or 1
+        percent = f"{round(scale * 100)}%"
+        self.scale_var.set(percent if percent in KDE_SCALES else "")
+
+        rotation = str(values.get("rotation", "none"))
+        if rotation in ("normal", "0"):
+            rotation = "none"
+        self.rotation_var.set(rotation if rotation in KDE_ROTATIONS else "none")
+
+        for widget in (self.hdr_check, self.wcg_check):
+            widget.state(["!disabled"] if hdr_capable else ["disabled"])
+        self.hdr_var.set(bool(values.get("hdr")))
+        self.wcg_var.set(bool(values.get("wcg")))
+
+        notes = []
+        if not hdr_capable:
+            notes.append("This display does not say it can do HDR.")
+        self.controls_state_var.set(" ".join(notes))
+
+    def _hdr_capable(self):
+        """True when the output says it can do HDR.
+
+        The capability that matters is "hdr"; "hdr-icc" is about the
+        colour profile of an HDR mode, and a display that says only
+        that still cannot show one.
+        """
+        return "hdr" in kwin.capabilities(self.display_var.get())
+
+    def apply_hdr(self):
+        out, on = self.display_var.get(), self.hdr_var.get()
+        self._set_display_setting(
+            lambda: kwin.set_hdr(out, on),
+            "HDR" if on else "HDR off")
+
+    def apply_wcg(self):
+        out, on = self.display_var.get(), self.wcg_var.get()
+        self._set_display_setting(
+            lambda: kwin.set_wcg(out, on), "the wide colour gamut")
+
+    def apply_bpc(self, _event=None):
+        text = self.bpc_var.get().split()[0]
+        try:
+            depth = int(text)
+        except (ValueError, IndexError):
+            return
+        out = self.display_var.get()
+        previous = self.bpc_var.get()
+
+        def restore():
+            self.bpc_var.set(previous)
+
+        self._set_display_setting(
+            lambda: kwin.set_maxbpc(out, depth),
+            f"the colour depth {depth} bpc", restore=restore)
+
+    def apply_scale(self, _event=None):
+        try:
+            percent = int(self.scale_var.get().removesuffix("%"))
+        except ValueError:
+            return
+        out = self.display_var.get()
+        previous = self.scale_var.get()
+
+        def restore():
+            self.scale_var.set(previous)
+
+        self._set_display_setting(
+            lambda: kwin.set_scale(out, f"{percent}%"),
+            f"the scale {percent}", restore=restore)
+
+    def apply_rotation(self, _event=None):
+        rotation = self.rotation_var.get()
+        out = self.display_var.get()
+        previous = self.rotation_var.get()
+
+        def restore():
+            self.rotation_var.set(previous)
+
+        self._set_display_setting(
+            lambda: kwin.set_rotation(out, rotation),
+            f"the rotation {rotation}", restore=restore)
+
+    def _set_display_setting(self, change, what, restore=None):
+        """Change a display setting and read what came of it.
+
+        The change runs off the interface's thread. When the desktop
+        does not take the new value, what was shown before is put back
+        and the message Plasma gave is shown; when it does, the
+        settings are read again and the cards follow.
+        """
+        def work():
+            ok, message = change()
+            if not ok:
+                return (False, message)
+            return (True, "")
+
+        def done(result):
+            if self._closing or not result:
+                return
+            ok, message = result
+            if ok:
+                self.set_status(f"{what[0].upper()}{what[1:]} set.")
+                self.refresh_desktop_state()
+            else:
+                if restore:
+                    restore()
+                self.set_status(f"Could not set {what}: {message}")
+                messagebox.showerror("Error",
+                                     f"Plasma would not set {what}:\n{message}")
+
+        self.run_async(work, done)
 
     # -- inputs -------------------------------------------------------------------
 
@@ -1124,6 +1500,7 @@ class LinuxCRU:
         policy = self.vrr_var.get()
         out = self.display_var.get()
         ok, message = wayland.set_vrr(self.env, out, policy)
+        kwin.invalidate()
         if ok:
             self.set_status(f"Adaptive sync set to {policy} on {out}.")
             self.vrr_status_var.set(f"Adaptive sync is {policy}.")
@@ -1133,6 +1510,39 @@ class LinuxCRU:
                 "Error",
                 f"Could not set adaptive sync on {out}:\n{message}")
             self.set_status("Could not set adaptive sync.")
+
+    def update_vrr_state(self, out):
+        """Show what adaptive sync is set to, and whether it can be.
+
+        A display that cannot do it is told so: there is no point in
+        offering a policy that the compositor will refuse, and the
+        reason a display cannot do it -- an EDID override that replaced
+        its own EDID -- is worth knowing about.
+        """
+        if not hasattr(self, "vrr_combo"):
+            return
+        policy = ""
+        capable = None
+        if self.env.compositor == "kwin" and kwin.available() and out:
+            policy = kwin.vrr_policy(out)
+            capable = kwin.supports_vrr(out)
+        if policy in wayland.VRR_POLICIES:
+            self.vrr_var.set(policy)
+        elif capable is not None:
+            self.vrr_var.set("automatic")
+
+        if capable is False:
+            self.vrr_combo.state(["disabled"])
+            self.vrr_status_var.set(
+                "This display does not report adaptive sync, so the frame "
+                "rate is locked to whatever the mode says.")
+        else:
+            self.vrr_combo.state(["!disabled"])
+            if policy in wayland.VRR_POLICIES:
+                self.vrr_status_var.set(
+                    f"Adaptive sync is set to {policy} right now.")
+            else:
+                self.vrr_status_var.set("")
 
     def refresh_stretch_status(self):
         if self.env.compositor != "kwin":
@@ -1296,6 +1706,16 @@ class LinuxCRU:
         # Remember what the display was running, not the id of the mode:
         # the ids are renumbered every time the configuration is applied.
         previous = detect.current_mode(self.env, out)
+
+        if previous and previous[0] == w and previous[1] == h \
+                and abs(previous[2] - r) < 0.01:
+            self.set_status(f"{w}x{h} at {r:g} Hz is what {out} is running "
+                            "already; nothing to apply.")
+            messagebox.showinfo(
+                "Already in use",
+                f"{w}x{h} at {r:g} Hz is what {out} runs now, so nothing "
+                "was changed.")
+            return
 
         ok, msg = wayland.kwin_apply_custom_mode(out, ml, w, h, r, reduced)
         if not ok:
@@ -1920,5 +2340,7 @@ class LinuxCRU:
         settings.save(self.settings)
 
     def on_close(self):
+        self._closing = True
+        self.cancel_pump()
         self.save_settings()
         self.root.destroy()

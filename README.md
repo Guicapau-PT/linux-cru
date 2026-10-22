@@ -15,6 +15,8 @@ The same tool on KDE Plasma 6.8, where the timings go to KWin as they are — no
 - **Works on X11 and Wayland.** Detects your session, compositor and GPU, and picks the method that actually works there — xrandr on X11, native custom modes on KWin (Plasma 6.6+), sway and Hyprland, or a kernel EDID override everywhere else (GNOME, COSMIC, NVIDIA on Wayland).
 - **COSMIC Desktop.** The outputs, their modes, the active one and the adaptive-sync state are read through `cosmic-randr`, and the mode is selected with it. (COSMIC cannot create a mode of its own — an upstream limitation, [pop-os/cosmic-epoch#2577](https://github.com/pop-os/cosmic-epoch/issues/2577) — so the mode is added to the display's EDID.)
 - **KDE Plasma.** Custom modes through `kscreen-doctor` on Plasma 6.6 and newer, and through **`kscreenctl` on Plasma 6.8 and newer, which takes a full modeline** — so every timing standard (CVT-RBv2, GTF, or one pasted from Windows CRU) reaches the display exactly as calculated, instead of the compositor re-deriving it. Adaptive sync (VRR) control as well. On X11 the mode is written to `/etc/X11/xorg.conf.d/`.
+- **Plasma display settings (6.8+).** HDR, wide colour gamut, the colour depth, the scale and the rotation of the selected display are read from the desktop and set on it — and controls the display cannot use are switched off instead of failing when clicked.
+- **A smooth interface.** The Plasma questions (each one a process and a DBus round trip) are asked off the window's own thread and the answers are reused for a moment, so the window keeps drawing while it works — on a compositor, a blocked Tcl loop is a hiccup the desktop sees.
 - **Correct VESA timings.** CVT, CVT reduced-blanking, CVT-RBv2 (lowest pixel clock, best for overclocking) and GTF for CRTs — all verified against `cvt`/`gtf`.
 - **Test Mode.** Applies a mode for 15 seconds and reverts on its own, so a bad mode is a brief black screen, not a reboot.
 - **EDID override engine.** Patches your monitor's EDID to add modes it doesn't advertise, applied live with no reboot and optionally kept across boots via a systemd service. The files live under `/var/lib/linux-cru`, so it works on immutable distributions too.
@@ -87,7 +89,7 @@ The tool never changes your resolution behind your back: applying a custom mode 
 | Desktop | What happens |
 |---|---|
 | **COSMIC** | The mode is added to the display's EDID (COSMIC cannot create modes of its own) and then selected with `cosmic-randr`. COSMIC reads the display's modes when it starts, so the mode appears in Settings → Displays after the next login. |
-| **KDE Plasma 6.8+** | The mode is handed to KWin as a full modeline with `kscreenctl`, which adds it and switches to it in one step. KDE saves it in `~/.config/kwinoutputconfig.json`. |
+| **KDE Plasma 6.8+** | The mode is handed to KWin as a full modeline with `kscreenctl`, which adds it and switches to it in one step. KDE saves it in `~/.config/kwinoutputconfig.json`. The display settings are set from the interface too: HDR, wide colour gamut, colour depth, scale and rotation. |
 | **KDE Plasma 6.6–6.7** | The mode is added with `kscreen-doctor output.X.addCustomMode...` and applied with `kscreen-doctor output.X.mode...`. Only the timings the compositor can compute itself (CVT, CVT-RB) are possible; anything else needs an EDID override. |
 | **KDE Plasma below 6.6** | No custom modes; an EDID override is used instead. |
 | **KDE Plasma on X11** | The mode is written to `/etc/X11/xorg.conf.d/10-linux-cru.conf` and needs a restart of X to appear. (Plasma 6.8 is the last release with an X11 session.) |
@@ -118,7 +120,7 @@ These were found by working on a real machine (COSMIC on CachyOS, kernel 7.2, NV
 | `The kernel did not pick up WxH` | The driver refused the mode. The pixel clock is probably over what the connection can carry — check `dmesg`. |
 | `The desktop has not read it yet` | The compositor only reads the display's modes when it starts. Log out and back in, or replug the display. |
 | The mode is there but not selectable | Some compositors (COSMIC, GNOME) only list modes their desktop knows about; the mode has to be in the display's EDID at boot, which is what **Apply** does. |
-| VRR stopped working | An EDID override disables adaptive sync on the NVIDIA driver while it is in place. |
+| VRR stopped working | An EDID override disables adaptive sync on the NVIDIA driver while it is in place — the override replaces the display's own EDID (three blocks, with DisplayID) with a shortened two-block one, and the display stops reporting it can do it. Remove the override and the display's own EDID comes back. |
 
 ## Warning
 

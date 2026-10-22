@@ -447,7 +447,7 @@ def current_mode(env: Environment, output: str):
             mode = _current_mode_xrandr(output)
         elif env.session_type == "wayland":
             if env.compositor == "kwin":
-                mode = _current_mode_kscreen(output)
+                mode = _current_mode_kwin(output)
             elif env.compositor == "cosmic":
                 mode = cosmic.current_mode(output)
             elif env.compositor == "sway":
@@ -503,7 +503,21 @@ def _current_mode_xrandr(output):
     return None
 
 
-def _current_mode_kscreen(output):
+def _current_mode_kwin(output):
+    """The current mode of a KWin output.
+
+    kscreenctl (Plasma 6.8 and newer) is asked first: it knows the
+    custom modes too, and the refresh rate it reports is the one the
+    display is really running. The deprecated kscreen-doctor is the
+    fallback for the releases before kscreenctl.
+
+    A custom mode does not have to be in the display's advertised
+    list, which kscreen-doctor does not know about.
+    """
+    if kwin.available():
+        mode = kwin.current_mode(output)
+        if mode:
+            return mode
     import json
     out = _run(["kscreen-doctor", "-j"])
     if not out:
@@ -592,26 +606,81 @@ def output_modes(env: Environment, output: str):
     The refresh rate is 0.0 when the source does not report one, which
     is the case for the kernel's own mode list.
     """
-    modes = []
+    return [(entry["width"], entry["height"], entry["refresh"],
+             entry["current"])
+            for entry in output_mode_entries(env, output)]
+
+
+def output_mode_entries(env: Environment, output: str):
+    """The modes an output offers, with what is known about each.
+
+    Each entry is a dictionary: width, height, refresh and whether the
+    mode is the one in use; on KDE the entry also says whether the mode
+    is a custom one, one that was added rather than advertised. The
+    refresh rate is 0.0 when the source does not report one, which is
+    the case for the kernel's own mode list.
+    """
     try:
         if env.session_type == "x11":
-            modes = _modes_xrandr(output)
-        elif env.session_type == "wayland":
+            return _entries_xrandr(output)
+        if env.session_type == "wayland":
             if env.compositor == "kwin":
-                modes = _modes_kscreen(output)
-            elif env.compositor == "cosmic":
-                modes = _modes_cosmic(output)
-            elif env.compositor == "sway":
-                modes = _modes_sway(output)
-            elif env.compositor == "hyprland":
-                modes = _modes_hyprland(output)
-            elif env.is_wlroots_family:
-                modes = _modes_wlr_randr(output)
-            else:
-                modes = _modes_sysfs(env, output)
-    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+                return _entries_kwin(output)
+            return _entries_from_modes(env, output)
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError,
+            TypeError):
         return []
-    return modes
+    return []
+
+
+def _entries_from_modes(env, output):
+    """Wrap the (width, height, refresh, current) tuples of a compositor."""
+    if env.compositor == "cosmic":
+        tuples = _modes_cosmic(output)
+    elif env.compositor == "sway":
+        tuples = _modes_sway(output)
+    elif env.compositor == "hyprland":
+        tuples = _modes_hyprland(output)
+    elif env.is_wlroots_family:
+        tuples = _modes_wlr_randr(output)
+    else:
+        tuples = _modes_sysfs(env, output)
+    return [{"width": w, "height": h, "refresh": r, "current": current}
+            for w, h, r, current in tuples]
+
+
+def _entries_xrandr(output):
+    return [{"width": w, "height": h, "refresh": r, "current": current}
+            for w, h, r, current in _modes_xrandr(output)]
+
+
+def _entries_kwin(output):
+    """The modes of a KWin output, custom ones included.
+
+    kscreenctl (Plasma 6.8 and newer) lists them with the others and
+    gives them an id, so a custom mode can be switched to by it.
+    kscreen-doctor is the fallback for the releases before it, and its
+    answer does not hold the custom modes at all.
+    """
+    if kwin.available():
+        entries = kwin.mode_entries(output)
+        if entries:
+            return entries
+    import json
+    out = _run(["kscreen-doctor", "-j"])
+    if not out:
+        return []
+    data = json.loads(out)
+    for o in data.get("outputs", []):
+        if o.get("name") != output:
+            continue
+        current_id = str(o.get("currentModeId"))
+        return [{"width": int(m.get("size", {}).get("width", 0)),
+                 "height": int(m.get("size", {}).get("height", 0)),
+                 "refresh": float(m.get("refreshRate", 0)),
+                 "current": str(m.get("id")) == current_id}
+                for m in o.get("modes", [])]
+    return []
 
 
 def _modes_xrandr(output):
@@ -647,31 +716,13 @@ def _modes_xrandr(output):
 
 
 def _modes_kscreen(output):
-    """The modes of a KWin output.
+    """The modes of a KWin output, as the (older) tuples.
 
-    kscreenctl (Plasma 6.8 and newer) is asked first: it knows the
-    modes the compositor really has, custom ones included.
+    The entries form knows about custom modes; this one is kept for
+    callers that only want the tuples.
     """
-    from . import kwin
-    if kwin.available():
-        modes = kwin.modes(output)
-        if modes:
-            return modes
-    import json
-    out = _run(["kscreen-doctor", "-j"])
-    if not out:
-        return []
-    modes = []
-    for o in json.loads(out).get("outputs", []):
-        if o.get("name") != output:
-            continue
-        current = str(o.get("currentModeId"))
-        for m in o.get("modes", []):
-            size = m.get("size", {})
-            modes.append((int(size.get("width", 0)), int(size.get("height", 0)),
-                          float(m.get("refreshRate", 0)),
-                          str(m.get("id")) == current))
-    return modes
+    return [(entry["width"], entry["height"], entry["refresh"],
+             entry["current"]) for entry in _entries_kwin(output)]
 
 
 def _modes_cosmic(output):

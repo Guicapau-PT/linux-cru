@@ -187,11 +187,23 @@ def kwin_apply_custom_mode(output, ml, width, height, refresh, reduced=True):
 
     Returns (ok, message). Plasma 6.8 and newer get the modeline as it
     is, so the timings on the display are exactly the ones that were
-    calculated; before that the compositor computed them itself.
+    calculated; before that the compositor computed them itself. The
+    refresh rate that is passed on is the one the timing comes out at,
+    which is what the mode is addressed by.
+
+    Nothing is done when the display is already running the mode: the
+    compositor would take the picture apart only to put it back the way
+    it was, and a test of a mode that is in use would look like a
+    flicker that changed nothing.
     """
+    current = kwin.current_mode(output)
+    if current and current[0] == width and current[1] == height \
+            and abs(current[2] - refresh) <= kwin.REFRESH_TOLERANCE:
+        return True, ""
+
     if kwin.available() and kwin.supports_modelines():
         return kwin.apply_mode(output, ml.timing_string(), width, height,
-                                refresh, reduced)
+                               refresh, reduced)
 
     if not kwin.available():
         # kscreen-doctor: add the mode, then switch to it.

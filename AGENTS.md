@@ -153,18 +153,59 @@ Two consequences worth remembering:
 
 `kscreenctl` takes a **full modeline** and applies the mode in the
 same step — the change that makes every timing standard usable on
-KDE. Four things it does not put in its help text:
+KDE. Six things it does not put in its help text:
 
-- `add-custom-mode` does **not** switch to the mode.
+- `add-custom-mode` does **not** switch to the mode. A `set-mode`
+  is what applies it.
 - The **mode ids are renumbered** every time the configuration is
   applied, so an id is only good for the moment it was read. Address a
   mode by what it is (`WxH@RR`), and find a just-added mode by which
-  id *appeared*.
+  id *appeared*. On 6.8.1 the JSON answer lists the custom modes with
+  the others and gives them an id, so the id can be read there — the
+  `list-modes` fallback is for the answers that do not.
 - A custom mode **that is in use cannot be removed**: the command
   exits 0 and does nothing. Switch away first, then remove.
 - The refresh rate is matched with a tolerance of 0.01 Hz. A display
   that advertises 99.98 and a tool that asks for 100.00 are 0.02 Hz
   apart, and a looser comparison picks the wrong one.
+- The **scale is a percentage** ("125%"); a bare decimal is read as a
+  percentage too, so "1.25" is refused with "at least 50%". `set-maxbpc`
+  takes whole numbers from 6 to 16, and 0 (the "unset" the JSON
+  reports) is not one of them.
+- The **mode list it reports is not sorted** (1, 10, 11 … 2, 20 …) and
+  holds the same timing once for every descriptor it reached the
+  display through; the backend sorts and takes the doubles out
+  (`kwin.mode_entries`).
+
+The JSON answer is also where the display settings live: scale,
+rotation, position, HDR, wide colour gamut, the colour depth
+(`maxbpc`), the colour range and the VRR policy, plus a
+`capabilities` list ("hdr", "vrr", "custom-modes", "hdr-icc"…).
+`hdr-icc` is **no proof of HDR** — an SDR panel reports it while
+saying HDR is incapable — so the tool looks for `hdr` and nothing
+else.
+
+Every kscreenctl call is a process and a DBus round trip, ~50 ms on
+this machine. The interface therefore asks off its own thread
+(worker + a queue drained by a timer), and the backend keeps the
+answers for a second (`kwin.invalidate()` on any change,
+`kwin.reset()` for the tests). A window that calls kscreenctl on its
+main thread stops drawing, which is the stutter the tool was built to
+remove. Note for anyone repeating the experiments above: a Tk
+variable may only be read on the interface's thread — a worker that
+reaches into a `StringVar` dies with "main thread is not in main
+loop".
+
+### The EDID override shortens the display's EDID on NVIDIA
+
+Verified live (NVIDIA 615, AOC U34E2M): the override replaces the
+display's own three-block EDID (base + CTA + DisplayID) with the
+patched one — two blocks, no DisplayID — because the driver reads
+only 256 bytes. The display then reports "VRR: incapable" where it
+said "capable" before: adaptive sync is lost for as long as the
+override is in place, and HDR with it. The compositor's own path
+(kscreenctl custom modes) keeps both, which is one more reason to
+prefer it when the driver has the resolution.
 
 ### COSMIC
 
@@ -184,11 +225,20 @@ changes. It is marked as a hack in the source; do not build on it.
 
 ## Current state
 
-- Version 0.3.0 (`linux_cru/__init__.py`). The CI checks that a `v*`
+- Version 0.4.0 (`linux_cru/__init__.py`). The CI checks that a `v*`
   tag matches it.
 - Works: X11 (xrandr + xorg.conf), KWin/Plasma 6.6+ (kscreen-doctor)
   and 6.8+ (kscreenctl), sway, Hyprland, the wlroots family, COSMIC
   and GNOME through the EDID override.
+- On Plasma 6.8 the interface also sets what the display settings
+  hold: HDR, wide colour gamut, the colour depth, the scale and the
+  rotation (`kscreenctl set-hdr/set-wcg/set-maxbpc/set-scale/
+  set-rotation`), and it shows what the desktop reports. The VRR
+  control follows the policy the output already has and is switched
+  off for a display that cannot do it.
+- Everything the interface asks from kscreenctl is asked off the
+  interface's thread (worker → queue → timer), and `kwin` keeps its
+  answers briefly; `kwin.invalidate()` drops them after a change.
 - The EDID override engine is the universal fallback: patched EDID,
   applied live through DRM debugfs, or kept across boots by a systemd
   service (the default) or the kernel command line.
@@ -204,23 +254,32 @@ changes. It is marked as a hack in the source; do not build on it.
   visible; the software replug (`disconnect` then `detect` in the
   connector's `status`) is offered by the tool but has not been
   verified against COSMIC.
-- **Plasma 6.8's HDR controls** (`kscreenctl set-hdr`, `set-wcg`,
-  `set-maxbpc`) are not exposed in the interface yet.
-- The **mode list of an output** on KDE comes from
-  `kscreenctl list-outputs --json`, which does not include the custom
-  modes as entries with ids; the custom ones are listed separately.
+- **VRR vs. the EDID override on NVIDIA**: while an override is in
+  place the display loses adaptive sync (a shortened, two-block EDID).
+  The interface says so, but a nicer answer — putting the DisplayID
+  block back into the patched EDID — has not been built. See
+  "The EDID override shortens the display's EDID" above.
 
 ## The machine this was developed on
 
 CachyOS, kernel 7.2 (cachyos), NVIDIA 615.78.08, an AOC U34E2M
-(3440x1440 @ 100 Hz, DisplayPort), COSMIC and KDE Plasma 6.8.0 on
+(3440x1440 @ 100 Hz, DisplayPort), COSMIC and KDE Plasma 6.8.1 on
 Wayland. The display's own EDID advertises 2560x1440 only through
 DisplayID, so it is a good test case for the EDID override.
+
+The system Python here has no `tk`; the GUI tests run after unpacking
+an Arch `tk` package into a plain directory and pointing the
+environment at it, which needs no root:
+
+```bash
+export LD_LIBRARY_PATH=/tmp/opencode/tkroot/usr/lib \
+       TK_LIBRARY=/tmp/opencode/tkroot/usr/lib/tk8.6
+```
 
 ## Making a release
 
 ```bash
-git tag -a v0.3.0 -m "..." && git push origin main && git push origin v0.3.0
+git tag -a v0.4.0 -m "..." && git push origin main && git push origin v0.4.0
 ```
 
 The workflow in `.github/workflows/build.yml` builds the AppImage on
