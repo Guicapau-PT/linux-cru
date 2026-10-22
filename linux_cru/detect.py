@@ -13,7 +13,7 @@ import subprocess
 
 from dataclasses import dataclass, field
 
-from . import cosmic, hostenv, kwin
+from . import cosmic, hostenv, kwin, persist
 
 
 def _read(path):
@@ -76,7 +76,7 @@ class Environment:
     kernel_version: tuple = ()
     lockdown: str = "unknown"            # none / integrity / confidentiality / unknown
     initramfs_tool: str = ""             # mkinitcpio / dracut / update-initramfs / ""
-    bootloader: str = "unknown"          # grub / systemd-boot / unknown
+    bootloader: str = "unknown"          # limine / grub / systemd-boot(-uki) / unknown
     nvidia_version: tuple = ()
     nvidia_drm_modeset: bool = False
     distro: str = ""                     # "CachyOS", "Fedora", ...
@@ -356,11 +356,14 @@ def _initramfs_tool():
 
 
 def _bootloader():
-    if os.path.isdir("/boot/loader/entries"):
-        return "systemd-boot"
-    if os.path.exists("/etc/default/grub") or os.path.exists("/boot/grub/grub.cfg"):
-        return "grub"
-    return "unknown"
+    """Which bootloader configuration this machine has.
+
+    The same answer persist.py gives for the install: one truth for
+    both. On a machine that boots into a frozen login, the limine and
+    the UKI command line are the paths an override could have taken,
+    and the older detection here did not know limine at all.
+    """
+    return persist.detect_bootloader()[0]
 
 
 def compositor_can_apply(env: Environment, standard: str) -> bool:
@@ -848,12 +851,8 @@ def describe_paths(env: Environment) -> str:
             return (f"{env.compositor} supports custom modelines. "
                     "See the commands in the preview.")
         if env.compositor == "kwin":
-            if env.kde_kscreenctl_available:
-                return ("KDE Plasma takes the timings as they are, through "
-                        "kscreenctl, so every timing standard can be used "
-                        "exactly. Nothing is written to the system, and "
-                        "adaptive sync keeps working. See the commands in "
-                        "the preview.")
+            # kscreen-doctor takes width/height/refresh plus a blanking
+            # choice; KWin then computes CVT or CVT-RB with libxcvt.
             if env.kde_custom_modes_available:
                 return ("KDE Plasma supports custom modes through kscreen-doctor. "
                         "See the commands in the preview.")
