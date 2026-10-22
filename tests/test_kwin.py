@@ -104,6 +104,23 @@ def test_the_help_text_says_whether_modelines_are_taken():
         assert kwin.supports_modelines() is False
 
 
+def test_a_mode_that_cannot_be_used_is_taken_away_again():
+    """The driver may refuse the mode.
+
+    The custom mode must not be left behind: one the driver cannot
+    produce makes every configuration apply fail, and the desktop says
+    only that the driver rejected it.
+    """
+    with Stub(fail_on="set-mode") as stub:
+        ok, message = kwin.apply_mode(
+            "DP-1", "398.64 2560 2568 2600 2640 1440 1496 1504 1510 "
+                    "+hsync -vsync", 2560, 1440, 100.0)
+        assert not ok
+        assert "rejected" in message, message
+        calls = stub.calls()
+        assert any(c.startswith("DP-1 remove-custom-mode") for c in calls), calls
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

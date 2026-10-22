@@ -1220,7 +1220,7 @@ class LinuxCRU:
 
         if self.env.session_type == "x11":
             self.test_mode_x11(out, name + "_test", ml)
-        elif self.wayland_testable():
+        elif self.wayland_testable() and not self.use_edid_method():
             if self.env.compositor == "kwin":
                 self.test_mode_kwin(out)
             else:
@@ -1516,7 +1516,7 @@ class LinuxCRU:
 
     def apply_configuration(self):
         if self.env.session_type != "x11":
-            if self.wayland_testable():
+            if self.wayland_testable() and not self.use_edid_method():
                 if self.env.compositor == "kwin":
                     messagebox.showinfo(
                         "Wayland",

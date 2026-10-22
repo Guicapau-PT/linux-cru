@@ -12,10 +12,19 @@ sys.path.insert(0, os.path.dirname(__file__))
 import tkinter as tk
 
 from kscreenctl_stub import Stub
+from tkinter import messagebox
 from linux_cru import app, cosmic, kwin, persist, privileged, theme, xorg
 from linux_cru.detect import Environment, GPU, Connector
 from linux_cru import detect
 from linux_cru import detect as dm
+
+# The interface asks questions in modal dialogs, and a modal dialog in a
+# test is a test that hangs forever: nobody is there to close it. The
+# dialogs are answered for the test instead.
+messagebox.showinfo = lambda *a, **k: None
+messagebox.showerror = lambda *a, **k: None
+messagebox.askyesno = lambda *a, **k: True
+messagebox.askokcancel = lambda *a, **k: True
 
 
 COSMIC_OUTPUTS = [
@@ -35,15 +44,24 @@ def _cosmic_env():
         connectors=[Connector("card1", "DP-2", "connected", "enabled", True)])
 
 
-def _gui(env):
+def _gui(env, outputs=None):
+    """Build the interface with a faked environment.
+
+    cosmic.outputs is stubbed: cosmic-randr waits for a COSMIC
+    compositor that is not there, and a test that shells out to it
+    waits with it.
+    """
     real = dm.detect
+    real_cosmic = cosmic.outputs
     dm.detect = lambda: env
+    cosmic.outputs = lambda: outputs if outputs is not None else []
     try:
         root = tk.Tk()
         root.withdraw()
         return root, app.LinuxCRU(root)
     finally:
         dm.detect = real
+        cosmic.outputs = real_cosmic
 
 
 def test_the_window_builds_and_shows_a_preview():
@@ -57,39 +75,29 @@ def test_the_window_builds_and_shows_a_preview():
 
 
 def test_the_mode_list_comes_from_the_compositor():
-    real = cosmic.outputs
-    cosmic.outputs = lambda: COSMIC_OUTPUTS
+    root, g = _gui(_cosmic_env(), outputs=COSMIC_OUTPUTS)
     try:
-        root, g = _gui(_cosmic_env())
-        try:
-            rows = g.mode_tree.get_children()
-            assert len(rows) == 3, rows
-            first = g.mode_tree.item(rows[0], "values")
-            assert first[0].startswith("3440x1440"), first
-            assert "active" in first[0]
-            assert first[1] == "99.982 Hz"
-        finally:
-            root.destroy()
+        rows = g.mode_tree.get_children()
+        assert len(rows) == 3, rows
+        first = g.mode_tree.item(rows[0], "values")
+        assert first[0].startswith("3440x1440"), first
+        assert "active" in first[0]
+        assert first[1] == "99.982 Hz"
     finally:
-        cosmic.outputs = real
+        root.destroy()
 
 
 def test_clicking_a_mode_fills_the_fields():
-    real = cosmic.outputs
-    cosmic.outputs = lambda: COSMIC_OUTPUTS
+    root, g = _gui(_cosmic_env(), outputs=COSMIC_OUTPUTS)
     try:
-        root, g = _gui(_cosmic_env())
-        try:
-            rows = g.mode_tree.get_children()
-            g.mode_tree.selection_set(rows[2])
-            g.on_mode_selected()
-            assert g.width_var.get() == "1920"
-            assert g.height_var.get() == "1080"
-            assert g.refresh_var.get() == "60"
-        finally:
-            root.destroy()
+        rows = g.mode_tree.get_children()
+        g.mode_tree.selection_set(rows[2])
+        g.on_mode_selected()
+        assert g.width_var.get() == "1920"
+        assert g.height_var.get() == "1080"
+        assert g.refresh_var.get() == "60"
     finally:
-        cosmic.outputs = real
+        root.destroy()
 
 
 def test_bad_input_is_explained_not_crashed():

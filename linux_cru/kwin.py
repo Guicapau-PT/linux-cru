@@ -224,6 +224,11 @@ def apply_mode(name, modeline, width, height, refresh, reduced=False):
     The mode is addressed by its id, and the id is found by looking at
     which one appeared -- the display may already advertise a mode with
     the same name, and that is not the one that was just added.
+
+    If the switch does not work, the mode is taken away again. A custom
+    mode the compositor keeps while the driver cannot produce it makes
+    every configuration apply fail, and the desktop says only that the
+    driver rejected it.
     """
     before = mode_ids(name)
     ok, message = add_custom_mode(name, modeline=modeline, width=width,
@@ -239,8 +244,23 @@ def apply_mode(name, modeline, width, height, refresh, reduced=False):
     query = mode_id or f"{width}x{height}@{refresh:g}"
     ok, message = set_mode(name, query)
     if not ok:
+        _remove_added(name, width, height, refresh)
         return False, message
     return True, ""
+
+
+def _remove_added(name, width, height, refresh):
+    """Take away a custom mode that could not be used."""
+    index = find_custom_mode(name, width, height, refresh)
+    if index is None:
+        for i, mode in enumerate(custom_modes(name)):
+            size = mode.get("resolution", {})
+            if (int(size.get("width", 0)) == width
+                    and int(size.get("height", 0)) == height):
+                index = i
+                break
+    if index is not None:
+        remove_custom_mode(name, index)
 
 
 def mode_ids(name):

@@ -13,6 +13,10 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # A test that hangs -- a modal dialog nobody can close, a tool that
+    # waits for a compositor that is not there -- would otherwise hold
+    # the job for six hours before the runner gives up.
+    timeout-minutes: 10
     steps:
     - uses: actions/checkout@v4
     - name: Install dependencies

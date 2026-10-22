@@ -61,7 +61,14 @@ JSON
         echo "the resolution and the refresh rate or CVT timings."
         ;;
 esac
-{stderr}exit {exit_code}
+if [ -n "{fail_on}" ]; then
+    case "$*" in
+        *{fail_on}*) echo "{stderr}" >&2; exit 1;;
+    esac
+elif [ "{exit_code}" != "0" ]; then
+    echo "{stderr}" >&2
+fi
+exit {exit_code}
 """
 
 
@@ -73,13 +80,14 @@ class Stub:
     """
 
     def __init__(self, outputs=None, exit_code=0, stderr="",
-                 modelines=True):
+                 modelines=True, fail_on=""):
         self.dir = tempfile.mkdtemp(prefix="cru-kscreenctl-")
         self.log = os.path.join(self.dir, "calls.log")
         script = SCRIPT.format(
             log=self.log,
             outputs=json.dumps(outputs if outputs is not None else OUTPUTS),
-            stderr=f'echo "{stderr}" >&2\n' if stderr else "",
+            stderr=stderr or "the driver rejected the output configuration",
+            fail_on=fail_on,
             exit_code=exit_code,
         )
         if not modelines:
