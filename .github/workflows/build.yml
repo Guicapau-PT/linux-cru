@@ -87,13 +87,9 @@ jobs:
         prerelease: false
         files: Linux_CRU-x86_64.AppImage
         generate_release_notes: true
-        body: |
-          The AppImage bundles Python, tkinter and the whole Tcl/Tk
-          runtime, so it does not need anything installed on your system.
-
-          ```
-          chmod +x Linux_CRU-x86_64.AppImage
-          ./Linux_CRU-x86_64.AppImage
-          ```
+        # The notes live in the repository, in docs/releases, so that they
+        # are versioned with the code and the workflow cannot replace
+        # them with something else.
+        body_path: docs/releases/${{ github.ref_name }}.md
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
