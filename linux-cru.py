@@ -108,6 +108,9 @@ def main():
         return
     if "--remove-overrides" in argv:
         sys.exit(remove_overrides_cli(argv))
+    if "--check-updates" in argv:
+        from linux_cru import update
+        sys.exit(update.command())
     if "--detect" in argv:
         detect_cli()
         return

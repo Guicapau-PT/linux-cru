@@ -22,6 +22,7 @@ DEFAULTS = {
     "standard": "cvt-rb2",
     "theme": "system",      # system / dark / light
     "geometry": "",         # the window size and position
+    "update_last_check": "", # when an update check last ran, as a timestamp
 }
 
 
