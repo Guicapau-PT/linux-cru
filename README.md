@@ -89,7 +89,7 @@ The tool never changes your resolution behind your back: applying a custom mode 
 | Desktop | What happens |
 |---|---|
 | **COSMIC** | The mode is added to the display's EDID (COSMIC cannot create modes of its own) and then selected with `cosmic-randr`. COSMIC reads the display's modes when it starts, so the mode appears in Settings → Displays after the next login. |
-| **KDE Plasma 6.8+** | The mode is handed to KWin as a full modeline with `kscreenctl`, which adds it and switches to it in one step. KDE saves it in `~/.config/kwinoutputconfig.json`. The display settings are set from the interface too: HDR, wide colour gamut, colour depth, scale and rotation. |
+| **KDE Plasma 6.8+** | The mode is handed to KWin as a full modeline with `kscreenctl`. Adding it and switching to it is one step for you; underneath they are two calls, because "add custom mode" does not switch. KDE saves it in `~/.config/kwinoutputconfig.json`. The display settings are set from the interface too: HDR, wide colour gamut, colour depth, scale and rotation. |
 | **KDE Plasma 6.6–6.7** | The mode is added with `kscreen-doctor output.X.addCustomMode...` and applied with `kscreen-doctor output.X.mode...`. Only the timings the compositor can compute itself (CVT, CVT-RB) are possible; anything else needs an EDID override. |
 | **KDE Plasma below 6.6** | No custom modes; an EDID override is used instead. |
 | **KDE Plasma on X11** | The mode is written to `/etc/X11/xorg.conf.d/10-linux-cru.conf` and needs a restart of X to appear. (Plasma 6.8 is the last release with an X11 session.) |

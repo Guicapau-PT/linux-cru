@@ -278,8 +278,16 @@ export LD_LIBRARY_PATH=/tmp/opencode/tkroot/usr/lib \
 
 ## Making a release
 
+Bump the version, write the notes, then tag. The publish step reads
+the notes from the repository (`docs/releases/vX.Y.Z.md`), and a
+missing file fails the release after the AppImage has been built --
+it happened with 0.4.0.
+
 ```bash
-git tag -a v0.4.0 -m "..." && git push origin main && git push origin v0.4.0
+$EDITOR docs/releases/v0.4.1.md     # the notes, in the style of the last ones
+sed -i 's/__version__ = "0.4.0"/__version__ = "0.4.1"/' linux_cru/__init__.py
+git commit -am "Prepare the 0.4.1 release"
+git tag -a v0.4.1 -m "..." && git push origin main && git push origin v0.4.1
 ```
 
 The workflow in `.github/workflows/build.yml` builds the AppImage on

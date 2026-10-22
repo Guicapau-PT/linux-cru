@@ -1327,11 +1327,16 @@ class LinuxCRU:
             if env.kde_kscreenctl_available:
                 return ("# Plasma 6.8 and newer take the timings as they are,\n"
                         "# so the mode on the display is exactly the one above.\n"
-                        "# Adding the mode also switches to it:\n"
+                        "# This adds the mode; it does not switch to it:\n"
                         f"kscreenctl {out} add-custom-mode {ml.timing_string()}\n\n"
+                        "# Switching is a second step, addressed by the id the\n"
+                        "# JSON answer reports for the mode that was added:\n"
+                        f"kscreenctl {out} set-mode <id>\n\n"
+                        f"( '{w}x{h}@{r:g}' matches by size and rate, not id.)\n\n"
                         "# Switch back to a mode the display already had:\n"
                         f"kscreenctl {out} set-mode {w}x{h}@{r:g}\n\n"
-                        "# Take the custom mode away again:\n"
+                        "# Take the custom mode away again (switch away first;\n"
+                        "# a mode in use cannot be removed):\n"
                         f"kscreenctl {out} remove-custom-mode 0\n")
             mhz = int(round(r * 1000))
             blanking = "full" if self.standard_var.get() == "cvt" else "reduced"

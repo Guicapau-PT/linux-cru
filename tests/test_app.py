@@ -299,7 +299,12 @@ def test_plasma_6_8_takes_the_timings_as_they_are():
                 g.generate_preview()
                 assert g.use_edid_method() is False, \
                     f"{standard} should not need an EDID override on Plasma 6.8"
-                assert "kscreenctl" in g.preview_text.get("1.0", "end")
+                preview = g.preview_text.get("1.0", "end")
+                assert "kscreenctl" in preview, preview
+                # add-custom-mode adds; a set-mode switches. The
+                # preview once claimed the add did both.
+                assert "does not switch" in preview, preview
+                assert "set-mode <id>" in preview, preview
         finally:
             close(root, g)
 
