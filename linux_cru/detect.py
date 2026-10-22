@@ -560,6 +560,30 @@ def _current_mode_wlr_randr(output):
     return None
 
 
+def driver_knows_resolution(env: Environment, output: str,
+                            width: int, height: int) -> bool:
+    """True if the driver has this resolution for the output.
+
+    A compositor can add a mode to its own list, but the driver still
+    has to be able to produce it: the NVIDIA driver refuses to switch
+    to a resolution that is not in the connector's mode list, even
+    when the compositor offers it. The kernel's list is what the
+    driver accepted, so that is what is asked.
+
+    It is read live rather than from the connectors that were found at
+    startup, because an EDID override changes it.
+    """
+    for c in env.connectors:
+        if c.name != output:
+            continue
+        try:
+            with open(f"/sys/class/drm/{c.card}-{c.name}/modes") as f:
+                return f"{width}x{height}" in f.read().split()
+        except OSError:
+            return False
+    return False
+
+
 # -- the mode list of an output ------------------------------------------------
 
 def output_modes(env: Environment, output: str):

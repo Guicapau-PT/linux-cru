@@ -14,6 +14,7 @@ import tkinter as tk
 from kscreenctl_stub import Stub
 from linux_cru import app, cosmic, kwin, persist, privileged, theme, xorg
 from linux_cru.detect import Environment, GPU, Connector
+from linux_cru import detect
 from linux_cru import detect as dm
 
 
@@ -156,6 +157,22 @@ def test_the_theme_follows_the_desktop():
             os.environ["LINUX_CRU_THEME"] = saved
 
 
+class _driver_knows:
+    """Pretend the driver does (or does not) have the resolution."""
+
+    def __init__(self, knows):
+        self.knows = knows
+
+    def __enter__(self):
+        self._real = detect.driver_knows_resolution
+        detect.driver_knows_resolution = lambda *a, **k: self.knows
+        return self
+
+    def __exit__(self, *exc):
+        detect.driver_knows_resolution = self._real
+        return False
+
+
 def test_plasma_6_8_takes_the_timings_as_they_are():
     """From 6.8 on, KWin gets the modeline instead of computing it."""
     env = Environment(session_type="wayland", desktop="KDE", compositor="kwin",
@@ -163,7 +180,7 @@ def test_plasma_6_8_takes_the_timings_as_they_are():
                       gpus=[GPU("card0", "amdgpu")],
                       connectors=[Connector("card0", "DP-1", "connected",
                                             "enabled", True)])
-    with Stub():
+    with Stub(), _driver_knows(True):
         root, g = _gui(env)
         try:
             for standard in ("cvt", "cvt-rb", "cvt-rb2", "gtf"):
@@ -187,7 +204,7 @@ def test_plasma_6_8_works_on_the_nvidia_driver():
                       gpus=[GPU("card0", "nvidia")],
                       connectors=[Connector("card0", "DP-1", "connected",
                                             "enabled", True)])
-    with Stub():
+    with Stub(), _driver_knows(True):
         root, g = _gui(env)
         try:
             g.standard_var.set("cvt-rb2")
@@ -195,6 +212,32 @@ def test_plasma_6_8_works_on_the_nvidia_driver():
             assert g.use_edid_method() is False, \
                 "Plasma 6.8 hands the timings over, so no EDID override is needed"
             assert g.method_var.get() == "kwin native", g.method_var.get()
+        finally:
+            root.destroy()
+
+
+def test_a_resolution_the_driver_does_not_have_needs_the_edid():
+    """The driver will not switch to a resolution it does not have.
+
+    It does not matter that the compositor can make the mode: the
+    driver rejects it, so the resolution has to go in through the EDID
+    first.
+    """
+    env = Environment(session_type="wayland", desktop="KDE", compositor="kwin",
+                      compositor_version=(6, 8, 0),
+                      gpus=[GPU("card0", "nvidia")],
+                      connectors=[Connector("card0", "DP-1", "connected",
+                                            "enabled", True)])
+    with Stub(), _driver_knows(False):
+        root, g = _gui(env)
+        try:
+            g.standard_var.set("cvt-rb2")
+            g.generate_preview()
+            assert g.use_edid_method() is True, \
+                "a resolution the driver does not have has to go in " \
+                "through the EDID"
+            assert g.method_var.get() == "EDID override", g.method_var.get()
+            assert "does not have" in g.effect_var.get(), g.effect_var.get()
         finally:
             root.destroy()
 
@@ -227,19 +270,20 @@ def test_plasma_6_6_only_takes_what_it_can_compute():
                       gpus=[GPU("card0", "amdgpu")],
                       connectors=[Connector("card0", "DP-1", "connected",
                                             "enabled", True)])
-    root, g = _gui(env)
-    try:
-        g.standard_var.set("cvt")
-        g.generate_preview()
-        assert g.use_edid_method() is False
-        assert "kscreen-doctor" in g.preview_text.get("1.0", "end")
-        g.standard_var.set("cvt-rb2")
-        g.generate_preview()
-        assert g.use_edid_method() is True, \
-            "CVT-RBv2 needs an EDID override before Plasma 6.8"
-        assert g.method_var.get() == "EDID override", g.method_var.get()
-    finally:
-        root.destroy()
+    with Stub(), _driver_knows(True):
+        root, g = _gui(env)
+        try:
+            g.standard_var.set("cvt")
+            g.generate_preview()
+            assert g.use_edid_method() is False
+            assert "kscreen-doctor" in g.preview_text.get("1.0", "end")
+            g.standard_var.set("cvt-rb2")
+            g.generate_preview()
+            assert g.use_edid_method() is True, \
+                "CVT-RBv2 needs an EDID override before Plasma 6.8"
+            assert g.method_var.get() == "EDID override", g.method_var.get()
+        finally:
+            root.destroy()
 
 
 def test_x11_apply_writes_the_configuration():

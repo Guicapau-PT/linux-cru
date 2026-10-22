@@ -837,13 +837,30 @@ class LinuxCRU:
             return "EDID override"
         return f"{self.env.compositor} native"
 
+    def edid_reason(self):
+        """Why the EDID is the way this mode has to go in."""
+        reason = detect.why_edid_needed(self.env, self.standard_var.get())
+        if self.env.session_type == "wayland" and detect.compositor_can_apply(
+                self.env, self.standard_var.get()):
+            try:
+                width, height, _refresh = self.read_inputs()
+            except ValueError:
+                return reason
+            if not detect.driver_knows_resolution(self.env,
+                                                  self.display_var.get(),
+                                                  width, height):
+                return (f"the driver does not have {width}x{height} yet, and "
+                        "it will not switch to a resolution that is not in the "
+                        "display's list")
+        return reason
+
     def effect_summary(self):
         if self.env.session_type == "x11":
             return ("Test Mode applies the mode now and reverts it by itself. "
                     "Apply writes it to /etc/X11/xorg.conf.d, where it "
                     "survives a restart.")
         if self.use_edid_method():
-            reason = detect.why_edid_needed(self.env, self.standard_var.get())
+            reason = self.edid_reason()
             return (f"The mode is added to the display's EDID, because {reason}. "
                     "It then shows up in the display settings and can be "
                     "selected there.")
@@ -914,7 +931,7 @@ class LinuxCRU:
         w, h, r = self.read_inputs()
 
         if self.use_edid_method():
-            reason = detect.why_edid_needed(env, self.standard_var.get())
+            reason = self.edid_reason()
             return self.edid_override_notes(
                 out, name, ml, reason=f"An EDID override is used because {reason}.")
 
@@ -1063,7 +1080,22 @@ class LinuxCRU:
         """True when the timings can only be delivered through the EDID."""
         if self.env.session_type == "x11":
             return False
-        return not detect.compositor_can_apply(self.env, self.standard_var.get())
+        if not detect.compositor_can_apply(self.env, self.standard_var.get()):
+            return True
+        # The compositor can produce the timings, but the driver has to
+        # know the resolution before it will switch to it: it refuses a
+        # resolution that is not in the connector's mode list, however
+        # the compositor offers it. So a resolution the driver does not
+        # have yet goes in through the EDID, which is what adds it.
+        try:
+            width, height, _refresh = self.read_inputs()
+        except ValueError:
+            return False
+        if not detect.driver_knows_resolution(self.env,
+                                              self.display_var.get(),
+                                              width, height):
+            return True
+        return False
 
     # -- log --------------------------------------------------------------------
 
@@ -1699,6 +1731,8 @@ class LinuxCRU:
             ok = ok and result.ok
             cancelled = cancelled or result.cancelled
             message = result.message or message
+            if result.ok:
+                self.clean_up_stale_custom_modes()
         if xorg_installed:
             result = self.run_root_script(
                 xorg.build_uninstall_script(out if target else None),
@@ -1720,6 +1754,41 @@ class LinuxCRU:
         else:
             messagebox.showerror("Error", f"Could not remove it:\n{message}")
             self.set_status("Error: could not remove the configuration")
+
+    def clean_up_stale_custom_modes(self):
+        """Take away the custom modes the driver can no longer provide.
+
+        A custom mode that the compositor keeps in its configuration but
+        the driver cannot produce makes every configuration apply fail,
+        and the desktop says "the driver rejected the output
+        configuration" with no hint of what is wrong. That happens when
+        the EDID override that made the resolution exist is taken away
+        while the custom mode is still in the configuration.
+        """
+        if self.env.compositor != "kwin" or not kwin.available():
+            return
+        for out in self.env.connectors:
+            modes = kwin.custom_modes(out.name)
+            if not modes:
+                continue
+            stale = []
+            for index, mode in enumerate(modes):
+                size = mode.get("resolution", {})
+                width = int(size.get("width", 0))
+                height = int(size.get("height", 0))
+                if detect.driver_knows_resolution(self.env, out.name,
+                                                  width, height):
+                    continue
+                stale.append(index)
+            for index in reversed(stale):
+                ok, message = kwin.remove_custom_mode(out.name, index)
+                if ok:
+                    self.log(f"removed the custom mode {out.name} "
+                             f"{index}, which the driver can no longer "
+                             "provide.")
+                else:
+                    self.log(f"could not remove the custom mode "
+                             f"{out.name} {index}: {message}")
 
     def refresh_remove_button(self):
         if persist.installed_connectors() or xorg.installed():

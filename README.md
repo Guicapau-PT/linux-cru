@@ -93,7 +93,7 @@ The tool never changes your resolution behind your back: applying a custom mode 
 | **KDE Plasma on X11** | The mode is written to `/etc/X11/xorg.conf.d/10-linux-cru.conf` and needs a restart of X to appear. (Plasma 6.8 is the last release with an X11 session.) |
 | **GNOME** | No custom modes at all; an EDID override is the only option. |
 | **sway / Hyprland** | The compositor takes the exact modeline. |
-| **NVIDIA on Wayland** | The driver rejects custom modes from the compositor, so the EDID override is used — **except on Plasma 6.8 and newer, where KWin hands over the exact timings and the driver accepts them**. Note that EDID overrides break VRR on NVIDIA, so the Plasma 6.8 route is the better one there. |
+| **NVIDIA on Wayland** | The driver rejects custom modes from the compositor, so the EDID override is used — **except on Plasma 6.8 and newer, where KWin hands over the exact timings and the driver applies them**. Either way the driver only switches to a resolution it already has, so a resolution the display only advertises through DisplayID still needs the override. Note that EDID overrides break VRR on NVIDIA. |
 
 ### CachyOS and Arch
 
@@ -106,6 +106,7 @@ The tool never changes your resolution behind your back: applying a custom mode 
 These were found by working on a real machine (COSMIC on CachyOS, kernel 7.2, NVIDIA 615.78.08, an AOC U34E2M) and are written up in [docs/research](docs/research/).
 
 - **A mode the display advertises may still not exist.** That monitor advertises 2560x1440 — but only in its DisplayID extension, and the NVIDIA driver does not turn DisplayID timings into modes, so the resolution was simply not selectable. Adding the same timing as a CTA-861 detailed timing descriptor made it appear at once. That is what the override does.
+- **The driver has the last word, not the compositor.** On Plasma 6.8 the exact timings reach the driver — but it will only switch to a resolution it already has. The tool asks the driver what it has (the connector's mode list) and picks the method accordingly: the compositor when the resolution is known, the EDID override when it is not.
 - **The kernel having a mode and the desktop having it are two different things.** After an override the kernel's connector mode list has the new mode immediately, but a compositor keeps its own copy of the mode list and may not read it again while it runs (COSMIC does not). The tool waits for the compositor, not just the kernel, and says so when the desktop has not read the display yet.
 - **A hotplug event is not a re-detect.** `echo detect > .../status` and `echo 1 > .../trigger_hotplug` make the driver rebuild its mode list, but they did not make cosmic-comp look at the display again. Writing `disconnect` and then `detect` — what a replug does in software — is the way to make the connector go away and come back, and the tool offers it when the desktop has not read the mode, with a warning: the screen goes blank while it happens.
 

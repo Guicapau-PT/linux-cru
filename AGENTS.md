@@ -121,14 +121,33 @@ extension, and the NVIDIA driver does not turn DisplayID timings into
 modes. The same timing written as a CTA-861 detailed timing descriptor
 works at once. The tool writes the CTA DTD for this reason.
 
-### The NVIDIA rule has an exception
+### The NVIDIA rule has an exception, but the driver has the last word
 
 For years: "the NVIDIA driver does not accept custom modes from Wayland
-compositors, use an EDID override". That is still true for most
-compositors, **but not on Plasma 6.8**, where KWin hands the exact
-timings over and the driver accepts the mode (verified with NVIDIA
-615.78.08 and a 398.640 MHz CVT-RBv2 timing). That matters because the
-EDID override it replaces breaks VRR.
+compositors, use an EDID override". With Plasma 6.8's modeline support
+the *timings* are no longer the problem: the exact timings reach the
+driver and it applies them (verified with NVIDIA 615.78.08 and a
+398.640 MHz CVT-RBv2 timing). What the driver still insists on is a
+**resolution it already has** — it will not switch to a resolution that
+is not in the connector's mode list, however the compositor offers it
+(`add-custom-mode` succeeds, `set-mode` then fails with "the driver
+rejected the output configuration").
+
+So the tool asks the driver what it has — the connector's `modes` file
+— and picks the method accordingly: the compositor when the resolution
+is known, the EDID override when it is not. A resolution the display
+only advertises through DisplayID is not in that list, so it needs the
+override; that is the case for the AOC U34E2M and 2560x1440.
+
+Two consequences worth remembering:
+
+- The EDID override breaks VRR on NVIDIA, and the compositor route does
+  not — so the route that does not need the override is the better one.
+- A custom mode the compositor keeps in its configuration while the
+  driver cannot produce it makes **every** configuration apply fail,
+  and the desktop says only "the driver rejected the output
+  configuration". Taking the override away therefore has to take the
+  custom modes with it; the tool does that when it removes an override.
 
 ### kscreenctl (KDE Plasma 6.8)
 
