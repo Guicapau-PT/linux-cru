@@ -67,9 +67,10 @@ On Arch Linux (and CachyOS):
 ### Running from source
 
 ```bash
-python3 linux-cru.py            # the interface
-python3 linux-cru.py --detect   # what the tool sees of this machine
-python3 linux-cru.py --self-test # build the whole interface and exit
+python3 linux-cru.py                    # the interface
+python3 linux-cru.py --detect           # what the tool sees of this machine
+python3 linux-cru.py --self-test        # build the whole interface and exit
+python3 linux-cru.py --remove-overrides # undo everything the tool installed (works without a desktop)
 ```
 
 ## Usage
@@ -116,6 +117,7 @@ These were found by working on a real machine (COSMIC on CachyOS, kernel 7.2, NV
 
 | Symptom | Cause |
 |---|---|
+| The login screen froze after a kernel update | A display setting or override that lived through the update. Get to a TTY (`Ctrl+Alt+F3`) or log in over SSH and run `python3 linux-cru.py --remove-overrides` — it takes everything this tool installed away and needs no graphical session, **no Tk, and no `--yes` unless you script it** (`--yes` to confirm, `--connector DP-1` to keep the others). A kernel update can also change which modes a driver accepts, which is invisible until the desktop has to start with one. |
 | `Could not apply the EDID override` | The kernel's debugfs is not available: `CONFIG_DEBUG_FS` is off, or the kernel is locked down (`cat /sys/kernel/security/lockdown`). |
 | `The kernel did not pick up WxH` | The driver refused the mode. The pixel clock is probably over what the connection can carry — check `dmesg`. |
 | `The desktop has not read it yet` | The compositor only reads the display's modes when it starts. Log out and back in, or replug the display. |

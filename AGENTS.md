@@ -55,8 +55,17 @@ build_appimage.sh         the AppImage build
 python3 linux-cru.py             # the interface
 python3 linux-cru.py --detect    # what the tool sees of this machine
 python3 linux-cru.py --self-test # build the whole interface and exit
+python3 linux-cru.py --remove-overrides   # undo everything installed, without a desktop
 ./build_appimage.sh              # the AppImage (SKIP_APPIMAGE=1 stops at the AppDir)
 ```
+
+The command-line flags run **before** tkinter is imported, so they
+work wherever the interface cannot start: a TTY after a frozen login,
+or a machine without Tk. `--detect` reports the session plus what the
+tool has installed; `--remove-overrides` (`--yes`, `--connector`)
+removes all of it and asks for root with a terminal password prompt
+when no authentication agent is around. A non-interactive run without
+`--yes` refuses instead of acting.
 
 ## The tests
 
@@ -262,16 +271,30 @@ changes. It is marked as a hack in the source; do not build on it.
 
 ## The machine this was developed on
 
-CachyOS, kernel 7.2 (cachyos), NVIDIA 615.78.08, an AOC U34E2M
-(3440x1440 @ 100 Hz, DisplayPort), COSMIC and KDE Plasma 6.8.1 on
-Wayland. The display's own EDID advertises 2560x1440 only through
+CachyOS, kernel 7.3.0 (cachyos) — reinstalled fresh with KDE Plasma
+6.8.1 on Wayland. NVIDIA 615.78.08, an AOC U34E2M (3440x1440 @ 100 Hz,
+DisplayPort). The display's own EDID advertises 2560x1440 only through
 DisplayID, so it is a good test case for the EDID override.
+
+Before the reinstall the machine ran kernel 7.2 and froze at the
+Plasma login screen after the 7.2→7.3 kernel update; force-offs did
+not help. The fresh install came back — the tool can install things
+near the boot path, so the lesson it took from that is a lesson for
+the tool as well: recovery must not depend on the desktop or on Tk.
+That is what `linux_cru/rescue.py` and the two CLI flags are for, and
+the launcher now dispatches all flags before tkinter is imported.
+Remember the tool's state when a system stops booting properly:
+`--remove-overrides` from a TTY is the undo.
 
 The system Python here has no `tk`; the GUI tests run after unpacking
 an Arch `tk` package into a plain directory and pointing the
-environment at it, which needs no root:
+environment at it, which needs no root (tk sits in `extra` these
+days; tcl is already installed):
 
 ```bash
+curl -fsSLo /tmp/opencode/tk.pkg.tar.zst \
+  https://geo.mirror.pkgbuild.com/extra/os/x86_64/tk-8.6.16-1-x86_64.pkg.tar.zst
+tar -xf /tmp/opencode/tk.pkg.tar.zst -C /tmp/opencode/tkroot
 export LD_LIBRARY_PATH=/tmp/opencode/tkroot/usr/lib \
        TK_LIBRARY=/tmp/opencode/tkroot/usr/lib/tk8.6
 ```
