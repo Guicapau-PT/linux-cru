@@ -15,7 +15,7 @@ import tkinter as tk
 
 from kscreenctl_stub import OUTPUTS, Stub
 from tkinter import messagebox
-from linux_cru import app, cosmic, kwin, persist, privileged, theme, xorg
+from linux_cru import app, cosmic, kwin, persist, privileged, theme, update, xorg
 from linux_cru.detect import Environment, GPU, Connector
 from linux_cru import detect
 
@@ -474,6 +474,45 @@ def test_remove_takes_the_x11_configuration_away_again():
         privileged.run_as_root = real
         xorg.installed = real_installed
         persist.installed_connectors = real_connectors
+        close(root, g)
+
+
+def test_the_guide_opens_and_says_where_it_landed():
+    """The Guide button opens the URL with the checked opener."""
+    from linux_cru import hostenv
+
+    root, g = _gui(_cosmic_env())
+    try:
+        visited = []
+        real_open = hostenv.open_url
+        hostenv.open_url = lambda url, browser_open=None: visited.append(url) or True
+        try:
+            g.open_guide()
+        finally:
+            hostenv.open_url = real_open
+        assert visited == [update.GUIDE_URL], visited
+        assert "The guide is open" in g.status_var.get()
+        assert f"guide: {update.GUIDE_URL}" in g.log_text.get(
+            "1.0", "end"), "the URL should land in the log too"
+    finally:
+        close(root, g)
+
+
+def test_the_guide_admits_it_when_nothing_could_open():
+    """A machine without an opener gets the URL, not a boast."""
+    from linux_cru import hostenv
+
+    root, g = _gui(_cosmic_env())
+    try:
+        real_open = hostenv.open_url
+        hostenv.open_url = lambda url, browser_open=None: False
+        try:
+            g.open_guide()
+        finally:
+            hostenv.open_url = real_open
+        assert "Nothing opened the browser" in g.status_var.get()
+        assert update.GUIDE_URL in g.status_var.get()
+    finally:
         close(root, g)
 
 

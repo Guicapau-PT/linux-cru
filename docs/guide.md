@@ -269,6 +269,13 @@ warn you about when they apply:
 - "The display/panel went black permanently": replug or
   reboot — the mode then stops being active even if it is still in
   the list.
+- The Guide button (and a click on the version when a newer release
+  exists) asks the desktop's default browser to open the page. When
+  nothing answers, the tool says so instead of claiming victory, and
+  the address is in the status line and the log — set your default
+  browser in your desktop's settings (KDE: System Settings →
+  Applications → Default Applications → Web Browser), or $BROWSER,
+  and try again.
 - If a whole *session* refuses to come up (login screen frozen),
   boot, then press **Ctrl+Alt+F3** for a text terminal (or SSH in),
   and run:

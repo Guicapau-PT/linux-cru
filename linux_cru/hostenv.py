@@ -12,6 +12,8 @@ AppImage started put back.
 """
 
 import os
+import shutil
+import subprocess
 
 # AppRun stores the caller's values here before overwriting them.
 _SAVED_PREFIX = "LINUX_CRU_SAVED_"
@@ -49,3 +51,35 @@ def subprocess_env(base=None):
         if key.startswith(_SAVED_PREFIX):
             del env[key]
     return env
+
+
+def open_url(url, webbrowser_open=None):
+    """Open a URL in the desktop's browser. True when something claims success.
+
+    The launcher is spawned with the environment system tools see: an
+    AppImage's LD_LIBRARY_PATH must not be handed to the browser for
+    the same reason it must not be handed to xrandr. xdg-open goes
+    first, because it knows the desktop's own choice of browser;
+    webbrowser answers for the rest (it reads $BROWSER, too).
+
+    webbrowser_open is the seam the tests use to stay away from real
+    browsers. Both answers are checked instead of being believed: a
+    tool that says "the guide is open" when nothing opened is a lie
+    the user pays for twice.
+    """
+    opener = shutil.which("xdg-open")
+    if opener:
+        try:
+            p = subprocess.run([opener, url], env=subprocess_env(),
+                               capture_output=True, timeout=15)
+            if p.returncode == 0:
+                return True
+        except (OSError, subprocess.SubprocessError):
+            pass
+    if webbrowser_open is None:
+        import webbrowser
+        webbrowser_open = webbrowser.open
+    try:
+        return bool(webbrowser_open(url))
+    except OSError:
+        return False

@@ -18,7 +18,6 @@ import tempfile
 import threading
 import time
 import tkinter as tk
-import webbrowser
 from datetime import datetime
 from tkinter import messagebox, ttk
 
@@ -950,9 +949,12 @@ class LinuxCRU:
         self.set_status(f"An update is available: {label} was published. "
                         "Click the version (or Guide) to read how to get it.")
         if open_when_newer:
-            webbrowser.open(url)
-            self.set_status(f"The release page for {label} is open in "
-                            "your browser.")
+            if hostenv.open_url(url):
+                self.set_status(f"The release page for {label} is open in "
+                                "your browser.")
+            else:
+                self.set_status(f"Nothing opened the browser. The release "
+                                f"page: {url}")
 
     def on_version_click(self, event=None):
         """A click on the version: check now, and visit when newer."""
@@ -960,9 +962,20 @@ class LinuxCRU:
 
     def open_guide(self):
         """Open the guide on the repository, in the browser."""
-        webbrowser.open(update.GUIDE_URL)
-        self.set_status("The guide is open: how the tool works, and "
-                        "walkthroughs for the common tasks.")
+        url = update.GUIDE_URL
+        if hostenv.open_url(url):
+            self.set_status("The guide is open: how the tool works, and "
+                            "walkthroughs for the common tasks.")
+        else:
+            messagebox.showinfo(
+                "Guide",
+                "No browser was started. The guide is here:\n\n"
+                f"    {url}\n\n"
+                "The address is also in the status line. Set the system's "
+                "default browser, or $BROWSER, and try again.")
+            self.set_status(f"Nothing opened the browser. The guide is at: "
+                            f"{url}")
+        self.log(f"guide: {url}")
 
     def pump_answers(self):
         """Deliver the answers that came in since the last look."""
