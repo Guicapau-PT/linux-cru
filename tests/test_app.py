@@ -18,6 +18,9 @@ from tkinter import messagebox
 from linux_cru import app, cosmic, kwin, persist, privileged, theme, xorg
 from linux_cru.detect import Environment, GPU, Connector
 from linux_cru import detect
+
+# A window built by a test must not ask the network anything.
+app.AUTO_UPDATE_CHECK = False
 from linux_cru import detect as dm
 
 # The interface asks questions in modal dialogs, and a modal dialog in a

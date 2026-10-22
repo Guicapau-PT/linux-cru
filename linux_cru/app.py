@@ -18,13 +18,21 @@ import tempfile
 import threading
 import time
 import tkinter as tk
+import webbrowser
 from datetime import datetime
 from tkinter import messagebox, ttk
 
 from . import (detect, edid, hostenv, kwin, override, persist, privileged,
-               settings, stretch, theme, timings, wayland, xorg)
+               settings, stretch, theme, timings, update, wayland, xorg)
+
+import linux_cru
 
 TEST_REVERT_SECONDS = 15
+
+# The automatic update check at startup. The tests switch this off: a
+# window built by a test must not ask the network anything, the way it
+# must not read what is installed on the machine it runs on.
+AUTO_UPDATE_CHECK = True
 
 # The refresh rates the display settings of Plasma offer, as percent.
 # Integer ones and the quarters are what Plasma itself offers.
@@ -207,6 +215,7 @@ class LinuxCRU:
         self.refresh_outputs()
         self.generate_preview()
         self._schedule_pump()
+        self.maybe_check_updates()
 
     # -- layout -----------------------------------------------------------------
 
@@ -307,9 +316,22 @@ class LinuxCRU:
                                      command=self.remove_configuration)
         self.remove_btn.pack(side=tk.LEFT, padx=(8, 0))
 
+        self.guide_btn = ttk.Button(buttons, text="Guide",
+                                    command=self.open_guide)
+        self.guide_btn.pack(side=tk.LEFT, padx=(16, 0))
+
         self.status_var = tk.StringVar(value="Ready.")
         ttk.Label(inner, textvariable=self.status_var,
                   style="Muted.TLabel").grid(row=0, column=1, sticky="e")
+
+        # The version, bottom right. A click asks for updates now
+        # instead of waiting for the automatic one, and opens the
+        # release page when there is something newer.
+        self.version_var = tk.StringVar(value=f"v{linux_cru.__version__}")
+        self.version_label = ttk.Label(inner, textvariable=self.version_var,
+                                       style="Muted.TLabel", cursor="hand2")
+        self.version_label.grid(row=0, column=2, sticky="e", padx=(14, 0))
+        self.version_label.bind("<Button-1>", self.on_version_click)
 
     # -- cards -------------------------------------------------------------------
 
@@ -868,6 +890,79 @@ class LinuxCRU:
         thread = threading.Thread(target=in_background, daemon=True)
         thread.start()
         return thread
+
+    # -- version and updates ---------------------------------------------------------
+
+    def maybe_check_updates(self):
+        """Ask for the newest release when the last check is old.
+
+        Silent: no network answer just leaves the version as it was.
+        """
+        if not AUTO_UPDATE_CHECK:
+            return
+        if update.should_check(self.settings.get("update_last_check", ""),
+                               time.time()):
+            self.check_updates(announce=False)
+
+    def check_updates(self, announce=True, open_when_newer=False):
+        """Ask the releases API now, off the interface's thread.
+
+        announce: say something in the status line, even when nothing
+        was found; a quiet background check only speaks when there is
+        news.
+        """
+        if announce:
+            self.set_status("Checking for updates...")
+
+        def work():
+            return update.latest_release()
+
+        def done(result):
+            self._update_done(result, announce=announce,
+                              open_when_newer=open_when_newer)
+
+        self.run_async(work, done)
+
+    def _update_done(self, result, announce=True, open_when_newer=False):
+        """The answer to an update check, delivered on this thread."""
+        self.settings["update_last_check"] = str(time.time())
+        settings.save(self.settings)
+
+        current = f"v{linux_cru.__version__}"
+        if not result:
+            self.version_var.set(current)
+            if announce:
+                self.set_status("Could not check for updates "
+                                "(the network did not answer?).")
+            return
+
+        label, url = result
+        if not update.is_newer(label, linux_cru.__version__):
+            self.version_var.set(current)
+            if announce:
+                self.set_status(f"Up to date ({current}) — that was the "
+                                "newest release.")
+            return
+
+        # A newer release: the version line carries the news until the
+        # tool is updated.
+        self.version_var.set(f"{current}  →  {label} available")
+        self.set_status(f"An update is available: {label} was published. "
+                        "Click the version (or Guide) to read how to get it.")
+        if open_when_newer:
+            webbrowser.open(url)
+            self.set_status(f"The release page for {label} is open in "
+                            "your browser.")
+
+    def on_version_click(self, event=None):
+        """A click on the version: check now, and visit when newer."""
+        self.check_updates(announce=True, open_when_newer=True)
+
+    def open_guide(self):
+        """Open the guide on the repository, in the browser."""
+        webbrowser.open(update.GUIDE_URL)
+        self.set_status("The guide is open: how the tool works, and "
+                        "walkthroughs for the common tasks.")
 
     def pump_answers(self):
         """Deliver the answers that came in since the last look."""

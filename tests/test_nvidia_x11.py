@@ -15,6 +15,9 @@ from linux_cru.detect import Environment, GPU, Connector
 from linux_cru import app
 from linux_cru import detect as dm
 
+# A window built by a test must not ask the network anything.
+app.AUTO_UPDATE_CHECK = False
+
 
 def _gui(env):
     real = dm.detect
