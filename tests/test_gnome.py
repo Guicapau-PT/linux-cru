@@ -12,6 +12,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from linux_cru import gnome
 
+# The tests below stand in for gdctl with a fake runner, so the
+# backend must believe the tool is present.
+gnome.available = lambda: True
+
 SAMPLE = open(os.path.join(os.path.dirname(__file__),
                            "fixtures", "gnome_show.txt")).read()
 

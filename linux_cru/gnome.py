@@ -448,13 +448,13 @@ def parse_show(text):
 
 def state(force=False):
     """The current GNOME layout, or an empty State if it cannot be read."""
-    if not available():
-        return State()
     now = time.monotonic()
     with _lock:
         if (not force and _cache["state"] is not None
                 and now - _cache["at"] < CACHE_SECONDS):
             return _cache["state"]
+    if not available():
+        return State()
 
     result = _run(["show", "--verbose"])
     text = (result.stdout or "")
