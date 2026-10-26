@@ -586,11 +586,17 @@ def _copy_state():
 def set_mode(output, width, height, refresh, persistent=False):
     """Switch one output to a mode Mutter already lists.
 
+    Returns early when gdctl is not installed, so callers get a clear
+    message instead of an empty layout.
+
     The rest of the layout is carried over unchanged.  A display that
     only has the custom timing in its kernel mode list, not in Mutter's,
     has to be detected again first; this returns a message saying so
     rather than altering the other outputs.
     """
+    if not available():
+        return False, ("gdctl is not available (it ships with GNOME 48 and "
+                       "later).")
     current = _copy_state()
     physical = current.monitor(output)
     logical = current.logical_for(output)
@@ -609,6 +615,9 @@ def set_mode(output, width, height, refresh, persistent=False):
 
 def set_scale(output, scale, persistent=True):
     """Change the scale of the logical monitor that holds `output`."""
+    if not available():
+        return False, ("gdctl is not available (it ships with GNOME 48 and "
+                       "later).")
     current = _copy_state()
     physical = current.monitor(output)
     logical = current.logical_for(output)
@@ -626,6 +635,9 @@ def set_scale(output, scale, persistent=True):
 
 def set_rotation(output, rotation, persistent=True):
     """Rotate the logical monitor that holds `output`."""
+    if not available():
+        return False, ("gdctl is not available (it ships with GNOME 48 and "
+                       "later).")
     transform = _ROTATIONS.get(str(rotation).strip().lower())
     if not transform:
         return False, f"unknown rotation: {rotation}"
@@ -656,6 +668,9 @@ def set_vrr(output, policy):
     with the same timing and a ``+vrr`` suffix.  "automatic" is treated
     as "always", because that is the only on state Mutter offers.
     """
+    if not available():
+        return False, ("gdctl is not available (it ships with GNOME 48 and "
+                       "later).")
     if policy not in ("never", "always", "automatic"):
         return False, f"unknown adaptive sync policy: {policy}"
     current = _copy_state()
