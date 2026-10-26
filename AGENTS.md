@@ -243,7 +243,10 @@ changes. It is marked as a hack in the source; do not build on it.
   tag matches it.
 - Works: X11 (xrandr + xorg.conf), KWin/Plasma 6.6+ (kscreen-doctor)
   and 6.8+ (kscreenctl), sway, Hyprland, the wlroots family, COSMIC
-  and GNOME through the EDID override.
+  and GNOME through the EDID override. On GNOME 48+ the modes Mutter
+  has and the display settings (scale, rotation, refresh rate, VRR) are
+  read and set through gdctl, so the patched mode can be selected
+  without leaving the tool.
 - On Plasma 6.8 the interface also sets what the display settings
   hold: HDR, wide colour gamut, the colour depth, the scale and the
   rotation (`kscreenctl set-hdr/set-wcg/set-maxbpc/set-scale/

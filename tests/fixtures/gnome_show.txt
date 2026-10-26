@@ -1,0 +1,194 @@
+Monitors:
+└──Monitor DP-2 (AOC 34")
+   ├──Vendor: AOC
+   ├──Product: U34E2M
+   ├──Serial: VRSP4HA001183
+   ├──Modes (27)
+   │   ├──3440x1440@99.982
+   │   │   ├──Dimension: 3440x1440
+   │   │   ├──Refresh rate: 99.982
+   │   │   ├──Preferred scale: 1.25
+   │   │   ├──Supported scales: [1.0, 1.25, 1.3333333730697632, 1.6666666269302368, 2.0, 2.5, 2.6666667461395264, 3.3333332538604736]
+   │   │   └──Properties: (1)
+   │   │       └──is-current ⇒  yes
+   │   ├──3440x1440@74.983
+   │   │   ├──Dimension: 3440x1440
+   │   │   ├──Refresh rate: 74.983
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0, 1.25, 1.3333333730697632, 1.6666666269302368, 2.0, 2.5, 2.6666667461395264, 3.3333332538604736]
+   │   │   └──Properties: (0)
+   │   ├──3440x1440@59.973
+   │   │   ├──Dimension: 3440x1440
+   │   │   ├──Refresh rate: 59.973
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0, 1.25, 1.3333333730697632, 1.6666666269302368, 2.0, 2.5, 2.6666667461395264, 3.3333332538604736]
+   │   │   └──Properties: (1)
+   │   │       └──is-preferred ⇒  yes
+   │   ├──3440x1440@29.985
+   │   │   ├──Dimension: 3440x1440
+   │   │   ├──Refresh rate: 29.985
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0, 1.25, 1.3333333730697632, 1.6666666269302368, 2.0, 2.5, 2.6666667461395264, 3.3333332538604736]
+   │   │   └──Properties: (0)
+   │   ├──2560x1080@59.939
+   │   │   ├──Dimension: 2560x1080
+   │   │   ├──Refresh rate: 59.939
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0, 1.25, 1.3333333730697632, 1.6666666269302368, 2.0, 2.5, 2.6666667461395264]
+   │   │   └──Properties: (0)
+   │   ├──2560x1080@50.001
+   │   │   ├──Dimension: 2560x1080
+   │   │   ├──Refresh rate: 50.001
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0, 1.25, 1.3333333730697632, 1.6666666269302368, 2.0, 2.5, 2.6666667461395264]
+   │   │   └──Properties: (0)
+   │   ├──1920x1080@60.000
+   │   │   ├──Dimension: 1920x1080
+   │   │   ├──Refresh rate: 60.000
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0, 1.25, 1.3333333730697632, 1.5, 1.6666666269302368, 2.0]
+   │   │   └──Properties: (0)
+   │   ├──1920x1080@59.939
+   │   │   ├──Dimension: 1920x1080
+   │   │   ├──Refresh rate: 59.939
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0, 1.25, 1.3333333730697632, 1.5, 1.6666666269302368, 2.0]
+   │   │   └──Properties: (0)
+   │   ├──1920x1080@50.000
+   │   │   ├──Dimension: 1920x1080
+   │   │   ├──Refresh rate: 50.000
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0, 1.25, 1.3333333730697632, 1.5, 1.6666666269302368, 2.0]
+   │   │   └──Properties: (0)
+   │   ├──1720x1440@59.936
+   │   │   ├──Dimension: 1720x1440
+   │   │   ├──Refresh rate: 59.936
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0, 1.25, 1.3333333730697632, 1.6666666269302368, 2.0, 2.5]
+   │   │   └──Properties: (0)
+   │   ├──1680x1050@59.954
+   │   │   ├──Dimension: 1680x1050
+   │   │   ├──Refresh rate: 59.954
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0, 1.25, 1.5, 1.6666666269302368, 1.75, 2.0]
+   │   │   └──Properties: (0)
+   │   ├──1440x900@59.887
+   │   │   ├──Dimension: 1440x900
+   │   │   ├──Refresh rate: 59.887
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0, 1.25, 1.3333333730697632, 1.5, 1.6666666269302368]
+   │   │   └──Properties: (0)
+   │   ├──1280x1024@75.025
+   │   │   ├──Dimension: 1280x1024
+   │   │   ├──Refresh rate: 75.025
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0, 1.3333333730697632]
+   │   │   └──Properties: (0)
+   │   ├──1280x1024@60.020
+   │   │   ├──Dimension: 1280x1024
+   │   │   ├──Refresh rate: 60.020
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0, 1.3333333730697632]
+   │   │   └──Properties: (0)
+   │   ├──1280x720@60.000
+   │   │   ├──Dimension: 1280x720
+   │   │   ├──Refresh rate: 60.000
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0, 1.25, 1.3333333730697632]
+   │   │   └──Properties: (0)
+   │   ├──1280x720@59.943
+   │   │   ├──Dimension: 1280x720
+   │   │   ├──Refresh rate: 59.943
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0, 1.25, 1.3333333730697632]
+   │   │   └──Properties: (0)
+   │   ├──1280x720@50.000
+   │   │   ├──Dimension: 1280x720
+   │   │   ├──Refresh rate: 50.000
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0, 1.25, 1.3333333730697632]
+   │   │   └──Properties: (0)
+   │   ├──1024x768@99.972
+   │   │   ├──Dimension: 1024x768
+   │   │   ├──Refresh rate: 99.972
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0, 1.3333333730697632]
+   │   │   └──Properties: (0)
+   │   ├──1024x768@75.029
+   │   │   ├──Dimension: 1024x768
+   │   │   ├──Refresh rate: 75.029
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0, 1.3333333730697632]
+   │   │   └──Properties: (0)
+   │   ├──1024x768@70.069
+   │   │   ├──Dimension: 1024x768
+   │   │   ├──Refresh rate: 70.069
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0, 1.3333333730697632]
+   │   │   └──Properties: (0)
+   │   ├──1024x768@60.004
+   │   │   ├──Dimension: 1024x768
+   │   │   ├──Refresh rate: 60.004
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0, 1.3333333730697632]
+   │   │   └──Properties: (0)
+   │   ├──800x600@99.662
+   │   │   ├──Dimension: 800x600
+   │   │   ├──Refresh rate: 99.662
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0]
+   │   │   └──Properties: (0)
+   │   ├──800x600@75.000
+   │   │   ├──Dimension: 800x600
+   │   │   ├──Refresh rate: 75.000
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0]
+   │   │   └──Properties: (0)
+   │   ├──800x600@72.188
+   │   │   ├──Dimension: 800x600
+   │   │   ├──Refresh rate: 72.188
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0]
+   │   │   └──Properties: (0)
+   │   ├──800x600@60.317
+   │   │   ├──Dimension: 800x600
+   │   │   ├──Refresh rate: 60.317
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0]
+   │   │   └──Properties: (0)
+   │   ├──800x600@56.250
+   │   │   ├──Dimension: 800x600
+   │   │   ├──Refresh rate: 56.250
+   │   │   ├──Preferred scale: 1.0
+   │   │   ├──Supported scales: [1.0]
+   │   │   └──Properties: (0)
+   │   └──720x576@50.000
+   │       ├──Dimension: 720x576
+   │       ├──Refresh rate: 50.000
+   │       ├──Preferred scale: 1.0
+   │       ├──Supported scales: [1.0]
+   │       └──Properties: (0)
+   ├──Preferences
+   │   └──Backlight: None
+   └──Properties: (7)
+       ├──is-builtin ⇒  no
+       ├──display-name ⇒  AOC 34"
+       ├──min-refresh-rate ⇒  48
+       ├──is-for-lease ⇒  no
+       ├──color-mode ⇒  default
+       ├──supported-color-modes ⇒  [default, sdr-native]
+       └──rgb-range ⇒  auto
+
+Logical monitors:
+└──Logical monitor #1
+   ├──Position: (0, 0)
+   ├──Scale: 1.25
+   ├──Transform: normal
+   ├──Primary: yes
+   ├──Monitors: (1)
+   │   └──DP-2 (AOC 34")
+   └──Properties: (0)
+
+Properties: (2)
+├──layout-mode ⇒  logical
+└──supports-changing-layout-mode ⇒  yes

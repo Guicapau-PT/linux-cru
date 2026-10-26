@@ -12,7 +12,7 @@ import re
 import subprocess
 import time
 
-from . import cosmic, detect, hostenv, kwin
+from . import cosmic, detect, gnome, hostenv, kwin
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -130,27 +130,22 @@ def cosmic_set_mode(output, width, height, refresh):
 def gnome_set_mode(env, output, width, height, refresh):
     """GNOME, through gdctl (shipped with Mutter since GNOME 48).
 
-    gdctl replaces the whole monitor layout, so with more than one
-    display connected this would rearrange the others. Refuse rather
-    than wreck someone's desk setup.
+    gdctl replaces the whole monitor layout, so the complete layout is
+    rebuilt from what Mutter reports and only this output's mode is
+    changed. That keeps the scale, rotation and the other displays as
+    they are -- the earlier version refused whenever more than one
+    display was connected, which left GNOME users with no way to switch
+    at all.
+
+    A custom mode that is still only in the kernel's list has not been
+    read by Mutter yet; gnome.set_mode says so instead of pretending the
+    driver refused it.
     """
-    connected = [c for c in env.connectors if c.status == "connected"]
-    if len(connected) > 1:
-        return False, ("gdctl rewrites the whole monitor layout, so this tool "
-                       "will not switch modes automatically with more than one "
-                       "display connected. The mode has been added -- select it "
-                       "in Settings > Displays.")
-    res = _run(["gdctl", "set", "--logical-monitor", "--primary",
-                "--monitor", output, "--mode",
-                f"{width}x{height}@{refresh:.3f}"])
-    if res.returncode == 0:
-        return True, ""
-    # Older GNOME has no gdctl.
-    if "not found" in (res.stderr or "").lower():
+    if not gnome.available():
         return False, ("gdctl is not available (it ships with GNOME 48 and "
                        "later). The mode has been added -- select it in "
                        "Settings > Displays.")
-    return False, (res.stderr or res.stdout)
+    return gnome.set_mode(output, width, height, refresh)
 
 
 # -- KDE / kscreen-doctor ----------------------------------------------------
@@ -353,6 +348,8 @@ _COSMIC_VRR = {"never": "false", "always": "true", "automatic": "automatic"}
 
 def vrr_supported(env):
     """True when this compositor can be told to use adaptive sync."""
+    if env.compositor == "mutter":
+        return gnome.available()
     return env.compositor in ("kwin", "cosmic")
 
 
@@ -367,6 +364,8 @@ def set_vrr(env, output, policy):
         return res.returncode == 0, (res.stderr or res.stdout)
     if env.compositor == "cosmic":
         return cosmic.set_adaptive_sync(output, _COSMIC_VRR[policy])
+    if env.compositor == "mutter":
+        return gnome.set_vrr(output, policy)
     return False, f"{env.compositor} cannot be told to use adaptive sync"
 
 

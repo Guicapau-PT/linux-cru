@@ -13,7 +13,7 @@ import subprocess
 
 from dataclasses import dataclass, field
 
-from . import cosmic, hostenv, kwin, persist
+from . import cosmic, gnome, hostenv, kwin, persist
 
 
 def _read(path):
@@ -423,7 +423,8 @@ def why_edid_needed(env: Environment, standard: str) -> str:
         reasons.append(f"{env.compositor} can only generate CVT timings with "
                        "full blanking")
     elif env.compositor == "mutter":
-        reasons.append("GNOME cannot add custom modes")
+        reasons.append("GNOME cannot add custom modes (gdctl can only select "
+                       "modes Mutter already has)")
     elif env.compositor == "cosmic":
         reasons.append("COSMIC cannot create custom modes of its own "
                        "(pop-os/cosmic-epoch#2577)")
@@ -451,6 +452,8 @@ def current_mode(env: Environment, output: str):
         elif env.session_type == "wayland":
             if env.compositor == "kwin":
                 mode = _current_mode_kwin(output)
+            elif env.compositor == "mutter":
+                mode = gnome.current_mode(output)
             elif env.compositor == "cosmic":
                 mode = cosmic.current_mode(output)
             elif env.compositor == "sway":
@@ -638,7 +641,11 @@ def output_mode_entries(env: Environment, output: str):
 
 def _entries_from_modes(env, output):
     """Wrap the (width, height, refresh, current) tuples of a compositor."""
-    if env.compositor == "cosmic":
+    if env.compositor == "mutter":
+        if gnome.available():
+            return gnome.mode_entries(output)
+        tuples = _modes_sysfs(env, output)
+    elif env.compositor == "cosmic":
         tuples = _modes_cosmic(output)
     elif env.compositor == "sway":
         tuples = _modes_sway(output)
@@ -833,8 +840,10 @@ def describe_paths(env: Environment) -> str:
                                "the mode is added to the display's EDID and "
                                "then selected with cosmic-randr.")
         elif env.compositor == "mutter":
-            compositor_note = (" GNOME has no way to add custom modes, so an "
-                               "EDID override is the only option.")
+            compositor_note = (" GNOME cannot create a mode, so the EDID is "
+                               "what adds it; gdctl is used to list the modes "
+                               "Mutter has and to switch to the new one while "
+                               "keeping the rest of the layout.")
         if env.has_nvidia_proprietary:
             if env.nvidia_edid_override_ok:
                 return ("The NVIDIA driver does not accept custom modes from Wayland "
@@ -864,6 +873,12 @@ def describe_paths(env: Environment) -> str:
                     "added to the display's EDID and then selected with "
                     "cosmic-randr (or wlr-randr, which speaks the same "
                     "protocol). The mode shows up in Settings > Displays.")
+        if env.compositor == "mutter":
+            return ("GNOME cannot create a mode: the kernel EDID is what adds "
+                    "it. gdctl reads the modes Mutter has and switches to the "
+                    "new one, keeping the scale, rotation and the other "
+                    "displays as they are. The mode also shows up in "
+                    "Settings > Displays.")
         if env.is_wlroots_family:
             return (f"{env.compositor} accepts simple custom modes through wlr-randr. "
                     "Exact timings need an EDID override.")

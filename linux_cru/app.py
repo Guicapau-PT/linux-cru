@@ -21,8 +21,9 @@ import tkinter as tk
 from datetime import datetime
 from tkinter import messagebox, ttk
 
-from . import (detect, edid, hostenv, kwin, override, persist, privileged,
-               settings, stretch, theme, timings, update, wayland, xorg)
+from . import (detect, edid, gnome, hostenv, kwin, override, persist,
+               privileged, settings, stretch, theme, timings, update, wayland,
+               xorg)
 
 import linux_cru
 
@@ -40,6 +41,10 @@ KDE_SCALES = ("100%", "125%", "150%", "175%", "200%")
 # Rotations the display settings of Plasma speak.
 KDE_ROTATIONS = ("none", "90", "180", "270", "flipped", "flipped90",
                  "flipped180", "flipped270")
+
+# Rotations Mutter speaks, in gdctl's spelling.
+GNOME_ROTATIONS = ("normal", "90", "180", "270", "flipped",
+                   "flipped-90", "flipped-180", "flipped-270")
 
 # Frame buffer depths Plasma offers, in bits per colour.
 KDE_BPCS = (8, 10, 12, 14, 16)
@@ -192,6 +197,7 @@ class LinuxCRU:
         self._modes_output = None
         self._mode_entries = []   # the same modes, with what is known about each
         self._kde_settings = None
+        self._gnome_settings = None
         self._closing = False     # the interface is going away
         self._answers = queue.Queue()   # answers from the worker threads
         self._pump_id = None      # the timer that drains the answers
@@ -408,16 +414,19 @@ class LinuxCRU:
         scroll.pack(side=tk.RIGHT, fill="y")
 
     def build_display_controls_card(self, parent):
-        """What Plasma 6.8 and newer can change about a display.
+        """What the desktop can change about a display.
 
         These are the settings that decide how a mode looks once it is
         up: the colour depth, the HDR state, the scale and the
         rotation. They are changed with the output that is selected
         above, and they are read back and shown here.
         """
-        if self.env.compositor != "kwin" or not kwin.available():
-            return
+        if self.env.compositor == "kwin" and kwin.available():
+            self.build_kde_display_controls_card(parent)
+        elif self.env.compositor == "mutter" and gnome.available():
+            self.build_gnome_display_controls_card(parent)
 
+    def build_kde_display_controls_card(self, parent):
         body = self.card(parent, "Display settings", "Plasma 6.8 and newer")
 
         self.hdr_var = tk.BooleanVar(value=False)
@@ -462,6 +471,54 @@ class LinuxCRU:
 
         self.controls_state_var = tk.StringVar()
         ttk.Label(body, textvariable=self.controls_state_var,
+                  style="Muted.TLabel", wraplength=340,
+                  justify="left").pack(fill=tk.X, pady=(8, 0))
+
+    def build_gnome_display_controls_card(self, parent):
+        """Scale, rotation and refresh rate, through GNOME's gdctl.
+
+        GNOME has no colour-depth or HDR switch in gdctl, and its VRR
+        setting is a mode (the "+vrr" variant), so those stay in the
+        Options card. The refresh rate is here because it is the setting
+        that makes a desktop feel smooth, and it is the one GNOME users
+        otherwise have to hunt for in Settings > Displays.
+        """
+        body = self.card(parent, "Display settings", "GNOME / gdctl")
+
+        row = ttk.Frame(body, style="Card.TFrame")
+        row.pack(fill=tk.X)
+        ttk.Label(row, text="Refresh rate", style="Card.TLabel").pack(
+            side=tk.LEFT)
+        self.gnome_refresh_var = tk.StringVar()
+        self.gnome_refresh_combo = ttk.Combobox(
+            row, textvariable=self.gnome_refresh_var, width=10,
+            state="readonly")
+        self.gnome_refresh_combo.pack(side=tk.LEFT, padx=(8, 16))
+        self.gnome_refresh_combo.bind("<<ComboboxSelected>>",
+                                      self.apply_gnome_refresh)
+
+        row = ttk.Frame(body, style="Card.TFrame")
+        row.pack(fill=tk.X, pady=(8, 0))
+        ttk.Label(row, text="Scale", style="Card.TLabel").pack(side=tk.LEFT)
+        self.gnome_scale_var = tk.StringVar()
+        self.gnome_scale_combo = ttk.Combobox(
+            row, textvariable=self.gnome_scale_var, width=8,
+            state="readonly")
+        self.gnome_scale_combo.pack(side=tk.LEFT, padx=(8, 16))
+        self.gnome_scale_combo.bind("<<ComboboxSelected>>",
+                                    self.apply_gnome_scale)
+
+        ttk.Label(row, text="Rotation", style="Card.TLabel").pack(side=tk.LEFT)
+        self.gnome_rotation_var = tk.StringVar()
+        self.gnome_rotation_combo = ttk.Combobox(
+            row, textvariable=self.gnome_rotation_var, width=12,
+            state="readonly", values=list(GNOME_ROTATIONS))
+        self.gnome_rotation_combo.pack(side=tk.LEFT, padx=(8, 0))
+        self.gnome_rotation_combo.bind("<<ComboboxSelected>>",
+                                       self.apply_gnome_rotation)
+
+        self.gnome_controls_state_var = tk.StringVar()
+        ttk.Label(body, textvariable=self.gnome_controls_state_var,
                   style="Muted.TLabel", wraplength=340,
                   justify="left").pack(fill=tk.X, pady=(8, 0))
 
@@ -578,9 +635,11 @@ class LinuxCRU:
             vrr_row = ttk.Frame(body, style="Card.TFrame")
             vrr_row.pack(fill=tk.X)
             self.vrr_var = tk.StringVar(value="automatic")
+            policies = (("never", "always") if self.env.compositor == "mutter"
+                        else wayland.VRR_POLICIES)
             self.vrr_combo = ttk.Combobox(
                 vrr_row, textvariable=self.vrr_var, width=12,
-                values=list(wayland.VRR_POLICIES), state="readonly")
+                values=list(policies), state="readonly")
             self.vrr_combo.pack(side=tk.LEFT)
             ttk.Button(vrr_row, text="Apply", style="Ghost.TButton",
                        command=self.apply_vrr).pack(side=tk.LEFT, padx=(8, 0))
@@ -806,6 +865,8 @@ class LinuxCRU:
                        for entry in self._mode_entries]
         self.fill_mode_list(self._modes)
         self.update_refresh_values()
+        if self.env.compositor == "mutter" and gnome.available():
+            self.update_gnome_refresh_values(self._mode_entries)
 
     def fill_mode_list(self, modes):
         """One row per mode, with what the desktop says about it."""
@@ -1041,23 +1102,28 @@ class LinuxCRU:
     # -- what Plasma says about a display ------------------------------------------
 
     def refresh_desktop_state(self):
-        """Ask Plasma what it does with the selected output.
+        """Ask the desktop what it does with the selected output.
 
-        Each answer is a round trip to KWin, so it is asked for off the
-        interface's thread. One JSON answer holds the display settings
-        and the custom modes; it fills the summary in the display card,
-        the display settings card and the adaptive-sync control.
+        Each answer is a round trip to the compositor, so it is asked
+        for off the interface's thread. On Plasma one JSON answer holds
+        the display settings and the custom modes; on GNOME gdctl
+        answers the layout and the mode list separately.
         """
         out = self.display_var.get()
         self.desktop_var.set("")
         self._kde_settings = None
-        if self.env.compositor != "kwin" or not kwin.available() or not out:
+        self._gnome_settings = None
+        if self.env.compositor == "kwin" and kwin.available() and out:
+            def work():
+                return kwin.settings(out), len(kwin.custom_modes(out))
+
+            self.run_async(work, self.show_desktop_state)
             return
+        if self.env.compositor == "mutter" and gnome.available() and out:
+            def work():
+                return gnome.settings(out), gnome.mode_entries(out)
 
-        def work():
-            return kwin.settings(out), len(kwin.custom_modes(out))
-
-        self.run_async(work, self.show_desktop_state)
+            self.run_async(work, self.show_gnome_state)
 
     def show_desktop_state(self, values):
         """Put what Plasma reported into the cards."""
@@ -1091,6 +1157,70 @@ class LinuxCRU:
         if custom_count:
             parts.append(f"{custom_count} custom mode(s) added")
         return f"Desktop: {' and '.join(parts)}." if parts else ""
+
+    def show_gnome_state(self, values):
+        """Put what GNOME reported into the cards."""
+        if self._closing or not isinstance(values, tuple) or len(values) != 2:
+            return
+        settings, entries = values
+        if not isinstance(settings, dict) or not settings:
+            return
+        self._gnome_settings = settings
+        self._gnome_mode_entries = entries or []
+        if self.display_var.get():
+            self.desktop_var.set(self.gnome_desktop_summary(settings))
+
+        scale = settings.get("scale") or 1
+        percent = f"{round(scale * 100)}%"
+        scales = sorted({round(float(value) * 100) for value in
+                         settings.get("scales", []) if value})
+        if round(scale * 100) not in scales:
+            scales.append(round(scale * 100))
+        self.gnome_scale_combo.configure(
+            values=[f"{value}%" for value in sorted(scales)])
+        self.gnome_scale_var.set(percent)
+
+        rotation = str(settings.get("rotation") or "normal")
+        if rotation not in GNOME_ROTATIONS:
+            rotation = "normal"
+        self.gnome_rotation_var.set(rotation)
+
+        width = settings.get("width") or 0
+        height = settings.get("height") or 0
+        rates = sorted({entry["refresh"] for entry in (entries or [])
+                        if entry.get("width") == width
+                        and entry.get("height") == height
+                        and entry.get("refresh")})
+        self.gnome_refresh_combo.configure(
+            values=[f"{rate:g}" for rate in rates])
+        refresh = settings.get("refresh") or 0
+        self.gnome_refresh_var.set(f"{refresh:g}" if refresh else "")
+
+        notes = []
+        if not settings.get("vrr_capable"):
+            notes.append("This display did not offer a variable refresh rate "
+                         "mode, so adaptive sync is not available.")
+        self.gnome_controls_state_var.set(" ".join(notes))
+        self.update_vrr_state(self.display_var.get())
+
+    def gnome_desktop_summary(self, values):
+        """One line about how GNOME is running this display."""
+        mode = []
+        width, height = values.get("width"), values.get("height")
+        if width and height:
+            mode.append(f"{width}x{height}")
+        if values.get("refresh"):
+            mode.append(f"{values['refresh']:.3f} Hz")
+        notes = []
+        scale = values.get("scale") or 1
+        if scale != 1:
+            notes.append(f"scaled {round(scale * 100)}%")
+        if values.get("vrr"):
+            notes.append("adaptive sync on")
+        summary = " at ".join(mode)
+        if notes:
+            summary += (", " if summary else "") + ", ".join(notes)
+        return f"Desktop: {summary}." if summary else ""
 
     def show_display_controls(self, values):
         """Fill the display settings card from what Plasma reported."""
@@ -1184,12 +1314,87 @@ class LinuxCRU:
             lambda: kwin.set_rotation(out, rotation),
             f"the rotation {rotation}", restore=restore)
 
+    def apply_gnome_refresh(self, _event=None):
+        try:
+            refresh = float(self.gnome_refresh_var.get().strip())
+        except ValueError:
+            return
+        if refresh <= 0:
+            return
+        out = self.display_var.get()
+        current = self._gnome_values()
+        if not current or not current.get("width"):
+            return
+        previous = self.gnome_refresh_var.get()
+
+        def restore():
+            self.gnome_refresh_var.set(previous)
+
+        width, height = current["width"], current["height"]
+        self._set_display_setting(
+            lambda: gnome.set_mode(out, width, height, refresh,
+                                   persistent=True),
+            f"the refresh rate {refresh:g} Hz", restore=restore)
+
+    def apply_gnome_scale(self, _event=None):
+        try:
+            percent = int(self.gnome_scale_var.get().removesuffix("%"))
+        except ValueError:
+            return
+        out = self.display_var.get()
+        previous = self.gnome_scale_var.get()
+
+        def restore():
+            self.gnome_scale_var.set(previous)
+
+        self._set_display_setting(
+            lambda: gnome.set_scale(out, percent / 100.0),
+            f"the scale {percent}%", restore=restore)
+
+    def apply_gnome_rotation(self, _event=None):
+        rotation = self.gnome_rotation_var.get()
+        out = self.display_var.get()
+        previous = self.gnome_rotation_var.get()
+
+        def restore():
+            self.gnome_rotation_var.set(previous)
+
+        self._set_display_setting(
+            lambda: gnome.set_rotation(out, rotation),
+            f"the rotation {rotation}", restore=restore)
+
+    def update_gnome_refresh_values(self, entries=None):
+        """Offer the refresh rates Mutter has for the current resolution."""
+        if not hasattr(self, "gnome_refresh_combo"):
+            return
+        if entries is not None:
+            self._gnome_mode_entries = entries
+        entries = getattr(self, "_gnome_mode_entries", None) or []
+        settings = getattr(self, "_gnome_settings", None)
+        if not settings:
+            return
+        width = settings.get("width") or 0
+        height = settings.get("height") or 0
+        rates = sorted({entry["refresh"] for entry in entries
+                        if entry.get("width") == width
+                        and entry.get("height") == height
+                        and entry.get("refresh")})
+        self.gnome_refresh_combo.configure(
+            values=[f"{rate:g}" for rate in rates])
+        refresh = settings.get("refresh") or 0
+        if refresh:
+            self.gnome_refresh_var.set(f"{refresh:g}")
+
+    def _gnome_values(self):
+        """The last GNOME answer, read on the interface's thread."""
+        return getattr(self, "_gnome_settings", None)
+
     def _set_display_setting(self, change, what, restore=None):
         """Change a display setting and read what came of it.
 
         The change runs off the interface's thread. When the desktop
         does not take the new value, what was shown before is put back
-        and the message Plasma gave is shown; when it does, the
+        and the message the compositor gave is shown; when it does, the
         settings are read again and the cards follow.
         """
         def work():
@@ -1210,7 +1415,8 @@ class LinuxCRU:
                     restore()
                 self.set_status(f"Could not set {what}: {message}")
                 messagebox.showerror("Error",
-                                     f"Plasma would not set {what}:\n{message}")
+                                     f"The desktop would not set {what}:\n"
+                                     f"{message}")
 
         self.run_async(work, done)
 
@@ -1614,9 +1820,11 @@ class LinuxCRU:
         out = self.display_var.get()
         ok, message = wayland.set_vrr(self.env, out, policy)
         kwin.invalidate()
+        gnome.invalidate()
         if ok:
             self.set_status(f"Adaptive sync set to {policy} on {out}.")
             self.vrr_status_var.set(f"Adaptive sync is {policy}.")
+            self.refresh_desktop_state()
         else:
             self.vrr_status_var.set("")
             messagebox.showerror(
@@ -1639,6 +1847,9 @@ class LinuxCRU:
         if self.env.compositor == "kwin" and kwin.available() and out:
             policy = kwin.vrr_policy(out)
             capable = kwin.supports_vrr(out)
+        elif self.env.compositor == "mutter" and gnome.available() and out:
+            policy = gnome.vrr_policy(out)
+            capable = gnome.supports_vrr(out)
         if policy in wayland.VRR_POLICIES:
             self.vrr_var.set(policy)
         elif capable is not None:
@@ -1646,9 +1857,14 @@ class LinuxCRU:
 
         if capable is False:
             self.vrr_combo.state(["disabled"])
-            self.vrr_status_var.set(
-                "This display does not report adaptive sync, so the frame "
-                "rate is locked to whatever the mode says.")
+            if self.env.compositor == "mutter":
+                self.vrr_status_var.set(
+                    "GNOME did not report a variable refresh rate mode for "
+                    "this display, so adaptive sync is not available.")
+            else:
+                self.vrr_status_var.set(
+                    "This display does not report adaptive sync, so the frame "
+                    "rate is locked to whatever the mode says.")
         else:
             self.vrr_combo.state(["!disabled"])
             if policy in wayland.VRR_POLICIES:

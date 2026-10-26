@@ -247,6 +247,8 @@ Notes:
 | **KDE Plasma 6.6–6.7** | kscreen-doctor gets width/height/refresh and computes CVT or CVT-RB itself. | Same config file. |
 | **sway / Hyprland** | The compositor is told the exact modeline. | The compositor's own config. |
 | **GNOME / COSMIC / anything else on Wayland** | The desktop cannot add modes; the mode is slipped into your display's **EDID** instead (an "override"). | The override is re-applied at boot by a small systemd service (default), or, with the **"kernel command line"** option, early enough for the boot console. |
+
+On GNOME 48 and newer the tool also reads what Mutter knows through `gdctl` and can switch to a mode it already has -- including the one the override added, once the desktop has read it -- while keeping the scale, rotation and the other displays. GNOME's adaptive sync is a mode variant there, so the tool switches to the `+vrr` variant instead of offering a separate policy. The refresh rate of the selected display can be changed from the Display settings card, which is the setting that makes the desktop feel smooth. |
 | **Any X11 session** | An xorg.conf snippet in `/etc/X11/xorg.conf.d/` with the modeline; on NVIDIA with checks relaxed / CustomEDID as per the Options card. | The xorg.conf file, until Remove or reconfiguration. |
 
 About the EDID override: your monitor's data sheet is replaced by a

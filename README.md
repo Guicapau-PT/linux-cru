@@ -96,7 +96,7 @@ The tool never changes your resolution behind your back: applying a custom mode 
 | **KDE Plasma 6.6–6.7** | The mode is added with `kscreen-doctor output.X.addCustomMode...` and applied with `kscreen-doctor output.X.mode...`. Only the timings the compositor can compute itself (CVT, CVT-RB) are possible; anything else needs an EDID override. |
 | **KDE Plasma below 6.6** | No custom modes; an EDID override is used instead. |
 | **KDE Plasma on X11** | The mode is written to `/etc/X11/xorg.conf.d/10-linux-cru.conf` and needs a restart of X to appear. (Plasma 6.8 is the last release with an X11 session.) |
-| **GNOME** | No custom modes at all; an EDID override is the only option. |
+| **GNOME** (48+) | No custom modes; an EDID override is the only option. gdctl is used to list the modes Mutter has and to switch to the new one while keeping the scale, rotation and the other displays, including the adaptive-sync (VRR) setting, which on GNOME is a mode variant. |
 | **sway / Hyprland** | The compositor takes the exact modeline. |
 | **NVIDIA on Wayland** | The driver rejects custom modes from the compositor, so the EDID override is used — **except on Plasma 6.8 and newer, where KWin hands over the exact timings and the driver applies them**. Either way the driver only switches to a resolution it already has, so a resolution the display only advertises through DisplayID still needs the override. Note that EDID overrides break VRR on NVIDIA. |
 
